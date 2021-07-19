@@ -57,6 +57,7 @@ type Fixture struct {
 
 type Tournament struct {
 	ID   int    `json:"id"`
+	Type string `json:"type"`
 	Name string `xml:"name,attr" json:"name"`
 }
 
@@ -203,6 +204,7 @@ func (f *Fixture) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	f.Sport = overlay.Tournament.Sport
 	f.Category = overlay.Tournament.Category
 	f.Tournament.ID = overlay.Tournament.URN.ID()
+	f.Tournament.Type = overlay.Tournament.URN.LastNID()
 	f.Tournament.Name = overlay.Tournament.Name
 
 	for _, c := range f.Competitors {

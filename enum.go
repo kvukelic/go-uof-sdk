@@ -104,6 +104,17 @@ func (u URN) ID() int {
 	return int(i)
 }
 
+func (u URN) LastNID() string {
+	if u == "" {
+		return ""
+	}
+	p := strings.Split(string(u), ":")
+	if len(p) != 3 {
+		return ""
+	}
+	return p[1]
+}
+
 /*
 const (
 	URNTypeMatch int8 = iota
