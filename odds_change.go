@@ -70,6 +70,7 @@ type MarketMetadata struct {
 type Outcome struct {
 	ID            int      `json:"id"`
 	PlayerID      int      `json:"playerID"`
+	VariantURN    URN      `json:"variantURN"`
 	Odds          *float64 `xml:"odds,attr,omitempty" json:"odds,omitempty"`
 	Probabilities *float64 `xml:"probabilities,attr,omitempty" json:"probabilities,omitempty"`
 	Active        *bool    `xml:"active,attr,omitempty" json:"active,omitempty"`
@@ -145,6 +146,7 @@ func (t *Outcome) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	}
 	t.ID = toOutcomeID(overlay.ID)
 	t.PlayerID = toPlayerID(overlay.ID)
+	t.VariantURN = toVariantURN(overlay.ID)
 	return nil
 }
 
@@ -194,6 +196,16 @@ func toOutcomeID(id string) int {
 		return int(i)
 	}
 	return hash32(id)
+}
+
+func toVariantURN(id string) URN {
+	if strings.HasPrefix(id, srPlayer) {
+		return ""
+	}
+	if _, err := strconv.ParseInt(id, 10, 64); err == nil {
+		return ""
+	}
+	return URN(id)
 }
 
 func (o *OddsChange) EachPlayer(handler func(int)) {

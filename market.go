@@ -53,6 +53,7 @@ type MarketDescription struct {
 
 type MarketOutcome struct {
 	ID          int    `json:"id"`
+	VariantURN  URN    `json:"variantURN"`
 	Name        string `xml:"name,attr" json:"name,omitempty"`
 	Description string `xml:"description,attr,omitempty" json:"description,omitempty"`
 }
@@ -113,6 +114,7 @@ func (t *MarketOutcome) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 		return err
 	}
 	t.ID = toOutcomeID(overlay.ID)
+	t.VariantURN = toVariantURN(overlay.ID)
 	return nil
 }
 
