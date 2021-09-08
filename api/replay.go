@@ -85,3 +85,17 @@ func (r *ReplayAPI) Stop() error {
 func (r *ReplayAPI) Reset() error {
 	return r.api.post(replayReset, nil)
 }
+
+func (r *ReplayAPI) StartEventWithCurrentTimestamps(eventURN uof.URN, speed, maxDelay int) error {
+	if err := r.Reset(); err != nil {
+		return err
+	}
+	if err := r.Add(eventURN); err != nil {
+		return err
+	}
+	return r.PlayWithCurrentTimestamps(speed, maxDelay)
+}
+
+func (r *ReplayAPI) PlayWithCurrentTimestamps(speed, maxDelay int) error {
+	return r.api.post(replayPlay, &params{Speed: speed, MaxDelay: maxDelay, UseReplayTimestamp: true})
+}
