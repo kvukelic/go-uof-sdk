@@ -56,6 +56,18 @@ func (r *ReplayAPI) StartEvent(eventURN uof.URN, speed, maxDelay int) error {
 	return r.Play(speed, maxDelay)
 }
 
+// StartEventWithCurrentTimestamps starts replay of a single event with
+// message timestamps overwritten to the time of transmission in replay
+func (r *ReplayAPI) StartEventWithCurrentTimestamps(eventURN uof.URN, speed, maxDelay int) error {
+	if err := r.Reset(); err != nil {
+		return err
+	}
+	if err := r.Add(eventURN); err != nil {
+		return err
+	}
+	return r.PlayWithCurrentTimestamps(speed, maxDelay)
+}
+
 // Adds to the end of the replay queue.
 func (r *ReplayAPI) Add(eventURN uof.URN) error {
 	return r.api.put(replayAdd, &params{EventURN: eventURN})
@@ -74,6 +86,19 @@ func (r *ReplayAPI) Play(speed, maxDelay int) error {
 	return r.api.post(replayPlay, &params{Speed: speed, MaxDelay: maxDelay})
 }
 
+// Start replay of the events in replay queue, with timestamps of the messages
+// overwritten to the time of transmission in replay. Parameters 'speed' and
+// 'max_delay' specify the speed of replay and what should be the maximum delay
+// between messages. Default values for these are speed = 10 and max_delay =
+// 10000. This means that messages will be sent 10x faster than in reality, and
+// that if there was some delay between messages that was longer than 10
+// seconds it will be reduced to exactly 10 seconds/10 000 ms (this is helpful
+// especially in pre-match odds where delay can be even a few hours or more).
+// If player is already in play, nothing will happen.
+func (r *ReplayAPI) PlayWithCurrentTimestamps(speed, maxDelay int) error {
+	return r.api.post(replayPlay, &params{Speed: speed, MaxDelay: maxDelay, UseReplayTimestamp: true})
+}
+
 // Stop the player if it is currently playing. If player is already stopped,
 // nothing will happen.
 func (r *ReplayAPI) Stop() error {
@@ -84,18 +109,4 @@ func (r *ReplayAPI) Stop() error {
 // player is already stopped, the queue is cleared.
 func (r *ReplayAPI) Reset() error {
 	return r.api.post(replayReset, nil)
-}
-
-func (r *ReplayAPI) StartEventWithCurrentTimestamps(eventURN uof.URN, speed, maxDelay int) error {
-	if err := r.Reset(); err != nil {
-		return err
-	}
-	if err := r.Add(eventURN); err != nil {
-		return err
-	}
-	return r.PlayWithCurrentTimestamps(speed, maxDelay)
-}
-
-func (r *ReplayAPI) PlayWithCurrentTimestamps(speed, maxDelay int) error {
-	return r.api.post(replayPlay, &params{Speed: speed, MaxDelay: maxDelay, UseReplayTimestamp: true})
 }
