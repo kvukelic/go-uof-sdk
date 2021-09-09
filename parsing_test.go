@@ -364,6 +364,15 @@ func TestFixtureTournament(t *testing.T) {
 	pp(ft)
 }
 
+func TestFixtureNoTournament(t *testing.T) {
+	buf, err := ioutil.ReadFile("./testdata/fixture-4.xml")
+	assert.Nil(t, err)
+
+	fr := &FixtureRsp{}
+	err = xml.Unmarshal(buf, fr)
+	assert.Error(t, err)
+}
+
 func TestBetSettlementToResult(t *testing.T) {
 	data := []struct {
 		result         int

@@ -29,17 +29,17 @@ func TestProducer(t *testing.T) {
 func TestURN(t *testing.T) {
 	u := URN("sr:match:123")
 	assert.Equal(t, 123, u.ID())
-	//assert.Equal(t, URNTypeMatch, u.Type())
+	assert.Equal(t, "match", u.LastNID())
 	assert.Equal(t, URN("sr:match:123"), NewEventURN(123))
 	assert.Equal(t, "sr:match:123", URN("sr:match:123").String())
 
 	assert.Equal(t, 0, URN("").ID())
+	assert.Equal(t, "", URN("").LastNID())
 	assert.True(t, URN("").Empty())
 	assert.Equal(t, 0, URN("").EventID())
-	assert.Equal(t, 0, URN("pero").ID())
 
-	//assert.Equal(t, URNTypeUnknown, URN("").Type())
-	//assert.Equal(t, URNTypeUnknown, URN("pero").Type())
+	assert.Equal(t, 0, URN("pero").ID())
+	assert.Equal(t, "", URN("pero").LastNID())
 	assert.Equal(t, 0, URN("pero").EventID())
 
 	u.Parse("123")
