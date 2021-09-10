@@ -16,6 +16,7 @@ type marketsAPI interface {
 type markets struct {
 	api       marketsAPI
 	languages []uof.Lang
+	variants  bool
 	em        *expireMap
 	errc      chan<- error
 	out       chan<- *uof.Message
@@ -24,11 +25,12 @@ type markets struct {
 }
 
 // getting all markets on the start
-func Markets(api marketsAPI, languages []uof.Lang) InnerStage {
+func Markets(api marketsAPI, languages []uof.Lang, variants bool) InnerStage {
 	var wg sync.WaitGroup
 	m := &markets{
 		api:       api,
 		languages: languages,
+		variants:  variants,
 		em:        newExpireMap(24 * time.Hour),
 		subProcs:  &wg,
 		rateLimit: make(chan struct{}, ConcurentAPICallsLimit),
@@ -42,7 +44,7 @@ func (s *markets) loop(in <-chan *uof.Message, out chan<- *uof.Message, errc cha
 	s.getAll()
 	for m := range in {
 		out <- m
-		if m.Is(uof.MessageTypeOddsChange) {
+		if s.variants && m.Is(uof.MessageTypeOddsChange) {
 			m.OddsChange.EachVariantMarket(func(marketID int, variant string) {
 				s.variantMarket(marketID, variant, m.ReceivedAt)
 			})

@@ -27,7 +27,7 @@ func (m *marketsAPIMock) MarketVariant(lang uof.Lang, marketID int, variant stri
 
 func TestMarketsPipe(t *testing.T) {
 	a := &marketsAPIMock{requests: make(map[string]struct{})}
-	ms := Markets(a, []uof.Lang{uof.LangEN, uof.LangDE})
+	ms := Markets(a, []uof.Lang{uof.LangEN, uof.LangDE}, true)
 	assert.NotNil(t, ms)
 
 	in := make(chan *uof.Message)
@@ -57,4 +57,34 @@ func TestMarketsPipe(t *testing.T) {
 	_, found = a.requests["de 145 sr:point_range:76+"]
 	assert.True(t, found)
 
+}
+
+func TestMarketsPipeNoVariants(t *testing.T) {
+	a := &marketsAPIMock{requests: make(map[string]struct{})}
+	ms := Markets(a, []uof.Lang{uof.LangEN, uof.LangDE}, false)
+	assert.NotNil(t, ms)
+	in := make(chan *uof.Message)
+	out, _ := ms(in)
+
+	// this type of message is passing through
+	m := uof.NewConnnectionMessage(uof.ConnectionStatusUp)
+	in <- m
+	om := <-out
+	assert.Equal(t, m, om)
+
+	m = oddsChangeMessage(t)
+	in <- m
+
+	close(in)
+	cnt := 0
+	for range out {
+		cnt++
+	}
+	assert.Equal(t, 3, cnt)
+
+	_, found := a.requests["en 145 sr:point_range:76+"]
+	assert.False(t, found)
+
+	_, found = a.requests["de 145 sr:point_range:76+"]
+	assert.False(t, found)
 }

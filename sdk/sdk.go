@@ -20,6 +20,7 @@ type Config struct {
 	BookmakerID   string
 	Token         string
 	Fixtures      time.Time
+	Variants      bool
 	Recovery      []uof.ProducerChange
 	Stages        []pipe.InnerStage
 	Replay        func(*api.ReplayAPI) error
@@ -54,7 +55,7 @@ func Run(ctx context.Context, options ...Option) error {
 	}
 
 	stages := []pipe.InnerStage{
-		pipe.Markets(apiConn, c.Languages),
+		pipe.Markets(apiConn, c.Languages, c.Variants),
 		pipe.Fixture(apiConn, c.Languages, c.Fixtures),
 		pipe.Player(apiConn, c.Languages),
 		pipe.BetStop(),
@@ -88,6 +89,7 @@ func config(options ...Option) Config {
 	// defaults
 	c := &Config{
 		Languages: defaultLanguages,
+		Variants:  true,
 		Env:       uof.Production,
 	}
 	for _, o := range options {
@@ -205,5 +207,12 @@ func Fixtures(to time.Time) Option {
 func ListenErrors(listener ErrorListenerFunc) Option {
 	return func(c *Config) {
 		c.ErrorListener = listener
+	}
+}
+
+// NoVariants disables variant market description messages.
+func NoVariants() Option {
+	return func(c *Config) {
+		c.Variants = false
 	}
 }
