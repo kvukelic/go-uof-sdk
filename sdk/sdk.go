@@ -21,6 +21,7 @@ type Config struct {
 	Token         string
 	Fixtures      time.Time
 	Variants      bool
+	AliveTimeout  time.Duration
 	Recovery      []uof.ProducerChange
 	Stages        []pipe.InnerStage
 	Replay        func(*api.ReplayAPI) error
@@ -61,7 +62,7 @@ func Run(ctx context.Context, options ...Option) error {
 		pipe.BetStop(),
 	}
 	if len(c.Recovery) > 0 {
-		stages = append(stages, pipe.Recovery(apiConn, c.Recovery))
+		stages = append(stages, pipe.Recovery(apiConn, c.Recovery, c.AliveTimeout))
 	}
 	stages = append(stages, c.Stages...)
 
@@ -214,5 +215,14 @@ func ListenErrors(listener ErrorListenerFunc) Option {
 func NoVariants() Option {
 	return func(c *Config) {
 		c.Variants = false
+	}
+}
+
+// AliveTimeout sets the duration in which the producers must send a
+// subsequent alive message; otherwise, the producer is considered to
+// be down and will initiate recovery when it becomes alive again
+func AliveTimeout(timeout time.Duration) Option {
+	return func(c *Config) {
+		c.AliveTimeout = timeout
 	}
 }
