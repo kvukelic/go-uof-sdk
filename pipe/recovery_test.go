@@ -46,7 +46,7 @@ func TestRecoveryStateMachine(t *testing.T) {
 	ps.Add(uof.ProducerPrematch, timestamp)
 	ps.Add(uof.ProducerLiveOdds, timestamp+1)
 	m := &recoveryAPIMock{calls: make(chan requestRecoveryParams, 16)}
-	r := newRecovery(m, ps)
+	r := newRecovery(m, ps, 0)
 
 	// 0. initilay all producers are down
 	for _, p := range r.producers {
@@ -118,7 +118,7 @@ func TestRecoveryRequests(t *testing.T) {
 	ps.Add(uof.ProducerLiveOdds, timestamp+1)
 
 	m := &recoveryAPIMock{calls: make(chan requestRecoveryParams, 16)}
-	r := newRecovery(m, ps)
+	r := newRecovery(m, ps, 0)
 	in := make(chan *uof.Message)
 	out := make(chan *uof.Message, 16)
 	errc := make(chan error, 16)
