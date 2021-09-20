@@ -32,11 +32,11 @@ func TestRecoveryTimestamp(t *testing.T) {
 		producer:       uof.ProducerLiveOdds,
 		aliveTimestamp: cs,
 	}
-	assert.Equal(t, cs, rp.recoveryTimestamp())
+	assert.Equal(t, cs, recoveryTimestamp(rp.aliveTimestamp, rp.producer))
 	rp.aliveTimestamp = cs - rp.producer.RecoveryWindow() + 10
-	assert.Equal(t, rp.aliveTimestamp, rp.recoveryTimestamp())
+	assert.Equal(t, rp.aliveTimestamp, recoveryTimestamp(rp.aliveTimestamp, rp.producer))
 	rp.aliveTimestamp = cs - rp.producer.RecoveryWindow()
-	assert.Equal(t, int(0), rp.recoveryTimestamp())
+	assert.Equal(t, int(0), recoveryTimestamp(rp.aliveTimestamp, rp.producer))
 }
 
 func TestRecoveryStateMachine(t *testing.T) {

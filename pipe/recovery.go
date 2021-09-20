@@ -77,16 +77,6 @@ func (p *recoveryProducer) stopPulse() {
 	}
 }
 
-// If producer is back more than recovery window (defined for each producer)
-// it has to make full recovery (forced with timestamp = 0).
-// Otherwise recovery after timestamp is done.
-func (p *recoveryProducer) recoveryTimestamp() int {
-	if uof.CurrentTimestamp()-p.aliveTimestamp >= p.producer.RecoveryWindow() {
-		return 0
-	}
-	return p.aliveTimestamp
-}
-
 type recovery struct {
 	api       recoveryAPI
 	requestID int
@@ -134,6 +124,16 @@ func (r *recovery) cancelSubProcs() {
 	}
 }
 
+// If producer is back more than recovery window (defined for each producer)
+// it has to make full recovery (forced with timestamp = 0).
+// Otherwise recovery after timestamp is done.
+func recoveryTimestamp(timestamp int, producer uof.Producer) int {
+	if uof.CurrentTimestamp()-timestamp >= producer.RecoveryWindow() {
+		return 0
+	}
+	return timestamp
+}
+
 func (r *recovery) requestRecovery(p *recoveryProducer) {
 	p.setStatus(uof.ProducerStatusInRecovery)
 	p.requestID = r.nextRequestID()
@@ -148,9 +148,10 @@ func (r *recovery) requestRecovery(p *recoveryProducer) {
 	go func(producer uof.Producer, timestamp int, requestID int) {
 		defer r.subProcs.Done()
 		for {
-			op := fmt.Sprintf("recovery for %s, timestamp: %d, requestID: %d", producer.Code(), timestamp, requestID)
+			recoveryTsp := recoveryTimestamp(timestamp, producer)
+			op := fmt.Sprintf("recovery for %s, timestamp: %d, requestID: %d", producer.Code(), recoveryTsp, requestID)
 			r.log(fmt.Errorf("starting %s", op))
-			err := r.api.RequestRecovery(producer, timestamp, requestID)
+			err := r.api.RequestRecovery(producer, recoveryTsp, requestID)
 			if err == nil {
 				return
 			}
@@ -162,7 +163,7 @@ func (r *recovery) requestRecovery(p *recoveryProducer) {
 			case <-time.After(time.Minute):
 			}
 		}
-	}(p.producer, p.recoveryTimestamp(), p.requestID)
+	}(p.producer, p.aliveTimestamp, p.requestID)
 }
 
 func (r *recovery) nextRequestID() int {
