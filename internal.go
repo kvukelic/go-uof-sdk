@@ -1,5 +1,7 @@
 package uof
 
+import "time"
+
 type Connection struct {
 	Status    ConnectionStatus `json:"status"`
 	Timestamp int              `json:"timestamp,omitempty"`
@@ -20,5 +22,19 @@ func (cs ConnectionStatus) String() string {
 		return "up"
 	default:
 		return "?"
+	}
+}
+
+type AliveConfiguration struct {
+	Timeout     time.Duration
+	MaxDelay    time.Duration
+	MaxInterval time.Duration
+}
+
+func DefaultAliveConfiguration() AliveConfiguration {
+	return AliveConfiguration{
+		Timeout:     0,
+		MaxDelay:    -1,
+		MaxInterval: 0,
 	}
 }

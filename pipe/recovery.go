@@ -24,13 +24,46 @@ import (
 // occurred.
 
 type recoveryProducer struct {
-	producer              uof.Producer
-	status                uof.ProducerStatus // current status of the producer
-	aliveTimestamp        int                // last alive timestamp
-	requestID             int                // last recovery requestID
-	statusChangedAt       int                // last change of the status
-	aliveTimeoutCancel    func()
-	recoveryRequestCancel context.CancelFunc
+	producer uof.Producer
+
+	status          uof.ProducerStatus // current status of the producer
+	statusChangedAt int                // timestamp of last status change
+
+	aliveConfiguration uof.AliveConfiguration // configuration of parameters for alive handling
+	aliveTimeoutHandle func()                 // handle alive timeout
+	aliveTimeoutCancel func()                 // cancel current alive timeout timer
+	aliveTimestamp     int                    // last alive timestamp (any)
+
+	recoveryRequestID     int                // last recovery requestID
+	recoveryRequestCancel context.CancelFunc // cancel current recovery request
+	recoveryTimestamp     int                // last alive timestamp while producer was active (for recovery)
+}
+
+func (p *recoveryProducer) setStatusActive() {
+	p.recoveryRequestID = 0
+	if p.recoveryRequestCancel != nil {
+		p.recoveryRequestCancel()
+	}
+	p.setStatus(uof.ProducerStatusActive)
+	p.resetTimeout()
+}
+
+func (p *recoveryProducer) setStatusDown() {
+	p.recoveryRequestID = 0
+	if p.recoveryRequestCancel != nil {
+		p.recoveryRequestCancel()
+	}
+	p.cancelTimeout()
+	p.setStatus(uof.ProducerStatusDown)
+}
+
+func (p *recoveryProducer) setStatusRecovery(requestID int) {
+	p.cancelTimeout()
+	p.setStatus(uof.ProducerStatusInRecovery)
+	if p.recoveryRequestCancel != nil {
+		p.recoveryRequestCancel()
+	}
+	p.recoveryRequestID = requestID
 }
 
 func (p *recoveryProducer) setStatus(newStatus uof.ProducerStatus) {
@@ -45,19 +78,130 @@ func (p *recoveryProducer) setStatus(newStatus uof.ProducerStatus) {
 	}
 }
 
-func (p *recoveryProducer) alivePulse(dead chan<- uof.Producer, timeout time.Duration) {
+func (p *recoveryProducer) alive(timestamp int, subscribed int) bool {
+	defer func() {
+		p.aliveTimestamp = timestamp
+	}()
+
+	switch p.status {
+	case uof.ProducerStatusActive:
+		// irregular alive timestamp interval
+		//   - signals problems on source server
+		//   - go down and wait for a valid alive message to start recovery
+		if !p.checkAliveInterval(timestamp) {
+			p.setStatusDown()
+			return false
+		}
+
+		// delay in receiving the alive message
+		//   - signals problems in message delivery or processing
+		//   - go down and wait for a valid alive message to start recovery
+		if !p.checkAliveDelay(timestamp) {
+			p.setStatusDown()
+			return false
+		}
+
+		// attribute 'subscribed' is set to 0
+		//   - signals subscription to feed was interrupted for any reason
+		//   - the message is otherwise ok, start recovery now
+		if subscribed == 0 {
+			return true
+		}
+
+		// alive message is ok
+		//   - reset alive timeout timer
+		//   - update timestamp of last alive message in active state
+		p.resetTimeout()
+		p.recoveryTimestamp = timestamp
+		return false
+
+	case uof.ProducerStatusDown:
+		// delay in receiving the alive message
+		//   - signals problems in message delivery or processing
+		//   - stay down, do not attempt to recover yet
+		if !p.checkAliveDelay(timestamp) {
+			return false
+		}
+
+		// alive message is ok
+		//   - start recovery
+		return true
+
+	case uof.ProducerStatusInRecovery:
+		// irregular alive timestamp interval
+		//   - signals problems on source server
+		//   - go down and wait for a valid alive message to start recovery
+		if !p.checkAliveInterval(timestamp) {
+			p.setStatusDown()
+			return false
+		}
+
+		// alive message is ok
+		//   - do nothing, wait for snapshot complete...
+		return false
+
+	default:
+		// unknown state?
+		return false
+	}
+}
+
+func (p *recoveryProducer) timedOut() error {
+	if p.status != uof.ProducerStatusActive {
+		// wrong state - not active
+		return fmt.Errorf("timeout: producer %s not active", p.producer)
+	}
+
+	// producer timed out: set to down
+	p.setStatusDown()
+	return nil
+}
+
+func (p *recoveryProducer) snapshotComplete(requestID int) error {
+	if p.status != uof.ProducerStatusInRecovery {
+		// wrong state - not in recovery
+		return fmt.Errorf("snapshot: producer %s not in recovery", p.producer)
+	}
+
+	if p.recoveryRequestID != requestID {
+		// snapshot complete for wrong requestID
+		return fmt.Errorf("snapshot: unexpected requestID %d, expected %d, for producer %s", requestID, p.recoveryRequestID, p.producer)
+	}
+
+	// snapshot complete: set to active
+	p.setStatusActive()
+	return nil
+}
+
+func (p *recoveryProducer) checkAliveInterval(timestamp int) bool {
+	if p.aliveConfiguration.MaxInterval <= 0 || p.aliveTimestamp == 0 {
+		return true
+	}
+	interval := timestamp - p.aliveTimestamp
+	return int64(interval) <= p.aliveConfiguration.MaxInterval.Milliseconds()
+}
+
+func (p *recoveryProducer) checkAliveDelay(timestamp int) bool {
+	if p.aliveConfiguration.MaxDelay < 0 {
+		return true
+	}
+	delay := uof.CurrentTimestamp() - timestamp
+	return int64(delay) <= p.aliveConfiguration.MaxDelay.Milliseconds()
+}
+
+func (p *recoveryProducer) resetTimeout() {
 	if p.aliveTimeoutCancel != nil {
 		p.aliveTimeoutCancel()
 		p.aliveTimeoutCancel = nil
 	}
-	if timeout > 0 {
-		alive := make(chan struct{})
+	if p.aliveConfiguration.Timeout > 0 {
+		alive := make(chan struct{}, 1)
 		go func() {
 			select {
 			case <-alive:
 				return
-			case <-time.After(timeout):
-				dead <- p.producer
+			case <-time.After(p.aliveConfiguration.Timeout):
+				p.aliveTimeoutHandle()
 				return
 			}
 		}()
@@ -70,7 +214,7 @@ func (p *recoveryProducer) alivePulse(dead chan<- uof.Producer, timeout time.Dur
 	}
 }
 
-func (p *recoveryProducer) stopPulse() {
+func (p *recoveryProducer) cancelTimeout() {
 	if p.aliveTimeoutCancel != nil {
 		p.aliveTimeoutCancel()
 		p.aliveTimeoutCancel = nil
@@ -81,8 +225,7 @@ type recovery struct {
 	api       recoveryAPI
 	requestID int
 	producers []*recoveryProducer
-	timeout   time.Duration
-	dead      chan uof.Producer
+	timedOut  chan uof.Producer
 	errc      chan<- error
 	subProcs  *sync.WaitGroup
 }
@@ -91,27 +234,38 @@ type recoveryAPI interface {
 	RequestRecovery(producer uof.Producer, timestamp int, requestID int) error
 }
 
-func newRecovery(api recoveryAPI, producers uof.ProducersChange, timeout time.Duration) *recovery {
+func newRecovery(api recoveryAPI, producers uof.ProducersChange, aliveConfig uof.AliveConfiguration) *recovery {
 	r := &recovery{
 		api:      api,
-		timeout:  timeout,
 		subProcs: &sync.WaitGroup{},
 	}
 	ct := uof.CurrentTimestamp()
 	for _, p := range producers {
-		r.producers = append(r.producers, &recoveryProducer{
-			producer:        p.Producer,
-			aliveTimestamp:  p.Timestamp,
-			status:          uof.ProducerStatusDown,
-			statusChangedAt: ct,
-		})
+		rp := recoveryProducer{
+			producer:           p.Producer,
+			status:             uof.ProducerStatusDown,
+			statusChangedAt:    ct,
+			aliveConfiguration: aliveConfig,
+			aliveTimestamp:     0,
+			recoveryTimestamp:  p.Timestamp,
+		}
+		rp.aliveTimeoutHandle = func() {
+			if r.timedOut != nil {
+				r.timedOut <- rp.producer
+			}
+		}
+		r.producers = append(r.producers, &rp)
 	}
 	return r
 }
 
-func (r *recovery) log(err error) {
+func (r *recovery) log(err error, notice bool) {
+	uofErr := uof.E
+	if notice {
+		uofErr = uof.Notice
+	}
 	select {
-	case r.errc <- uof.E("recovery", err):
+	case r.errc <- uofErr("recovery", err):
 	default:
 	}
 }
@@ -124,23 +278,9 @@ func (r *recovery) cancelSubProcs() {
 	}
 }
 
-// If producer is back more than recovery window (defined for each producer)
-// it has to make full recovery (forced with timestamp = 0).
-// Otherwise recovery after timestamp is done.
-func recoveryTimestamp(timestamp int, producer uof.Producer) int {
-	if uof.CurrentTimestamp()-timestamp >= producer.RecoveryWindow() {
-		return 0
-	}
-	return timestamp
-}
-
 func (r *recovery) requestRecovery(p *recoveryProducer) {
-	p.setStatus(uof.ProducerStatusInRecovery)
-	p.requestID = r.nextRequestID()
+	p.setStatusRecovery(r.nextRequestID())
 
-	if cancel := p.recoveryRequestCancel; cancel != nil {
-		cancel()
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p.recoveryRequestCancel = cancel
 
@@ -148,14 +288,22 @@ func (r *recovery) requestRecovery(p *recoveryProducer) {
 	go func(producer uof.Producer, timestamp int, requestID int) {
 		defer r.subProcs.Done()
 		for {
-			recoveryTsp := recoveryTimestamp(timestamp, producer)
+			// recalculate recovery timestamp
+			recoveryTsp := adjustRecoveryTsp(timestamp, producer)
+
+			// log operation
 			op := fmt.Sprintf("recovery for %s, timestamp: %d, requestID: %d", producer.Code(), recoveryTsp, requestID)
-			r.log(fmt.Errorf("starting %s", op))
+			r.log(fmt.Errorf("starting %s", op), false)
+
+			// request recovery
 			err := r.api.RequestRecovery(producer, recoveryTsp, requestID)
 			if err == nil {
 				return
 			}
-			r.errc <- uof.Notice(op, err)
+
+			// log failed request
+			r.log(err, true)
+
 			// wait a minute
 			select {
 			case <-ctx.Done():
@@ -163,12 +311,59 @@ func (r *recovery) requestRecovery(p *recoveryProducer) {
 			case <-time.After(time.Minute):
 			}
 		}
-	}(p.producer, p.aliveTimestamp, p.requestID)
+	}(p.producer, p.recoveryTimestamp, p.recoveryRequestID)
 }
 
 func (r *recovery) nextRequestID() int {
 	r.requestID++
 	return r.requestID
+}
+
+// If producer is back more than recovery window (defined for each producer)
+// it has to make full recovery (forced with timestamp = 0).
+// Otherwise recovery after timestamp is done.
+func adjustRecoveryTsp(timestamp int, producer uof.Producer) int {
+	if uof.CurrentTimestamp()-timestamp >= producer.RecoveryWindow() {
+		return 0
+	}
+	return timestamp
+}
+
+// handles alive message
+func (r *recovery) producerAlive(producer uof.Producer, timestamp int, subscribed int) {
+	p := r.find(producer)
+	if p == nil {
+		return // this is expected we are getting alive for all producers in uof (with Subscribed=0)
+	}
+	recover := p.alive(timestamp, subscribed)
+	if recover {
+		r.requestRecovery(p)
+	}
+}
+
+// handles alive timeout
+func (r *recovery) producerTimedOut(producer uof.Producer) {
+	p := r.find(producer)
+	if p == nil {
+		return
+	}
+	err := p.timedOut()
+	if err != nil {
+		r.log(err, false)
+	}
+}
+
+// handles snapshot complete messages
+func (r *recovery) snapshotComplete(producer uof.Producer, requestID int) {
+	p := r.find(producer)
+	if p == nil {
+		r.log(fmt.Errorf("snapshot: unexpected producer %s", producer), false)
+		return
+	}
+	err := p.snapshotComplete(requestID)
+	if err != nil {
+		r.log(err, false)
+	}
 }
 
 func (r *recovery) find(producer uof.Producer) *recoveryProducer {
@@ -180,62 +375,9 @@ func (r *recovery) find(producer uof.Producer) *recoveryProducer {
 	return nil
 }
 
-// handles alive message
-func (r *recovery) alive(producer uof.Producer, timestamp int, subscribed int) {
-	p := r.find(producer)
-	if p == nil {
-		return // this is expected we are getting alive for all producers in uof (with Subscribed=0)
-	}
-	p.alivePulse(r.dead, r.timeout)
-	switch p.status {
-	case uof.ProducerStatusActive:
-		if subscribed != 0 {
-			p.aliveTimestamp = timestamp
-			return
-		}
-		r.requestRecovery(p)
-		return
-	case uof.ProducerStatusDown:
-		r.requestRecovery(p)
-		return
-	case uof.ProducerStatusInRecovery:
-		return
-	}
-}
-
-// handles alive timeout
-func (r *recovery) aliveTimeout(producer uof.Producer) {
-	p := r.find(producer)
-	if p == nil {
-		return
-	}
-	p.setStatus(uof.ProducerStatusDown)
-}
-
-// handles snapshot complete messages
-// set that producer state to active
-func (r *recovery) snapshotComplete(producer uof.Producer, requestID int) {
-	p := r.find(producer)
-	if p == nil {
-		r.log(fmt.Errorf("unexpected producer %s", producer))
-		return
-	}
-	if p.status != uof.ProducerStatusInRecovery {
-		r.log(fmt.Errorf("producer %s not in recovery", producer))
-		return
-	}
-	if p.requestID != requestID {
-		r.log(fmt.Errorf("unexpected requestID %d, expected %d, for producer %s", requestID, p.requestID, producer))
-		return
-	}
-	p.setStatus(uof.ProducerStatusActive)
-	p.requestID = 0
-}
-
 // start recovery for all producers
 func (r *recovery) connectionUp() {
 	for _, p := range r.producers {
-		p.alivePulse(r.dead, r.timeout)
 		if p.status == uof.ProducerStatusDown {
 			r.requestRecovery(p)
 		}
@@ -245,8 +387,45 @@ func (r *recovery) connectionUp() {
 // set status of all producers to down
 func (r *recovery) connectionDown() {
 	for _, p := range r.producers {
-		p.stopPulse()
-		p.setStatus(uof.ProducerStatusDown)
+		p.setStatusDown()
+	}
+}
+
+func (r *recovery) loop(in <-chan *uof.Message, out chan<- *uof.Message, errc chan<- error) *sync.WaitGroup {
+	r.errc = errc
+	r.timedOut = make(chan uof.Producer)
+	var statusChangedAt int
+
+	for {
+		select {
+		case m, ok := <-in:
+			if !ok {
+				r.cancelSubProcs()
+				return r.subProcs
+			}
+			out <- m
+			switch m.Type {
+			case uof.MessageTypeAlive:
+				r.producerAlive(m.Alive.Producer, m.Alive.Timestamp, m.Alive.Subscribed)
+			case uof.MessageTypeSnapshotComplete:
+				r.snapshotComplete(m.SnapshotComplete.Producer, m.SnapshotComplete.RequestID)
+			case uof.MessageTypeConnection:
+				switch m.Connection.Status {
+				case uof.ConnectionStatusUp:
+					r.connectionUp()
+				case uof.ConnectionStatusDown:
+					r.connectionDown()
+				}
+			default:
+				continue
+			}
+		case p := <-r.timedOut:
+			r.producerTimedOut(p)
+		}
+		if sc := r.statusChangedAt(); sc > statusChangedAt {
+			statusChangedAt = sc
+			out <- r.producersChangeMessage()
+		}
 	}
 }
 
@@ -261,44 +440,6 @@ func (r *recovery) statusChangedAt() int {
 	return sc
 }
 
-func (r *recovery) loop(in <-chan *uof.Message, out chan<- *uof.Message, errc chan<- error) *sync.WaitGroup {
-	r.errc = errc
-	r.dead = make(chan uof.Producer)
-	var statusChangedAt int
-
-	for {
-		select {
-		case m, ok := <-in:
-			if !ok {
-				r.cancelSubProcs()
-				return r.subProcs
-			}
-			out <- m
-			switch m.Type {
-			case uof.MessageTypeAlive:
-				r.alive(m.Alive.Producer, m.Alive.Timestamp, m.Alive.Subscribed)
-			case uof.MessageTypeSnapshotComplete:
-				r.snapshotComplete(m.SnapshotComplete.Producer, m.SnapshotComplete.RequestID)
-			case uof.MessageTypeConnection:
-				switch m.Connection.Status {
-				case uof.ConnectionStatusUp:
-					r.connectionUp()
-				case uof.ConnectionStatusDown:
-					r.connectionDown()
-				}
-			default:
-				continue
-			}
-		case p := <-r.dead:
-			r.aliveTimeout(p)
-		}
-		if sc := r.statusChangedAt(); sc > statusChangedAt {
-			statusChangedAt = sc
-			out <- r.producersChangeMessage()
-		}
-	}
-}
-
 func (r *recovery) producersChangeMessage() *uof.Message {
 	var psc uof.ProducersChange
 	for _, p := range r.producers {
@@ -308,14 +449,14 @@ func (r *recovery) producersChangeMessage() *uof.Message {
 			Timestamp: p.statusChangedAt,
 		}
 		if p.status == uof.ProducerStatusInRecovery {
-			pc.RecoveryID = p.requestID
+			pc.RecoveryID = p.recoveryRequestID
 		}
 		psc = append(psc, pc)
 	}
 	return uof.NewProducersChangeMessage(psc)
 }
 
-func Recovery(api recoveryAPI, producers uof.ProducersChange, timeout time.Duration) InnerStage {
-	r := newRecovery(api, producers, timeout)
+func Recovery(api recoveryAPI, producers uof.ProducersChange, aliveConfig uof.AliveConfiguration) InnerStage {
+	r := newRecovery(api, producers, aliveConfig)
 	return StageWithSubProcesses(r.loop)
 }

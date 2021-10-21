@@ -17,18 +17,18 @@ type ErrorListenerFunc func(err error)
 
 // Config is active SDK configuration
 type Config struct {
-	BookmakerID   string
-	Token         string
-	Fixtures      time.Time
-	Variants      bool
-	AliveTimeout  time.Duration
-	Recovery      []uof.ProducerChange
-	Stages        []pipe.InnerStage
-	Replay        func(*api.ReplayAPI) error
-	Env           uof.Environment
-	Staging       bool
-	Languages     []uof.Lang
-	ErrorListener ErrorListenerFunc
+	BookmakerID        string
+	Token              string
+	Fixtures           time.Time
+	Variants           bool
+	AliveConfiguration uof.AliveConfiguration
+	Recovery           []uof.ProducerChange
+	Stages             []pipe.InnerStage
+	Replay             func(*api.ReplayAPI) error
+	Env                uof.Environment
+	Staging            bool
+	Languages          []uof.Lang
+	ErrorListener      ErrorListenerFunc
 }
 
 // Option sets attributes on the Config.
@@ -62,7 +62,7 @@ func Run(ctx context.Context, options ...Option) error {
 		pipe.BetStop(),
 	}
 	if len(c.Recovery) > 0 {
-		stages = append(stages, pipe.Recovery(apiConn, c.Recovery, c.AliveTimeout))
+		stages = append(stages, pipe.Recovery(apiConn, c.Recovery, c.AliveConfiguration))
 	}
 	stages = append(stages, c.Stages...)
 
@@ -89,9 +89,10 @@ func firstErr(errc <-chan error, errorListener ErrorListenerFunc) error {
 func config(options ...Option) Config {
 	// defaults
 	c := &Config{
-		Languages: defaultLanguages,
-		Variants:  true,
-		Env:       uof.Production,
+		Variants:           true,
+		AliveConfiguration: uof.DefaultAliveConfiguration(),
+		Env:                uof.Production,
+		Languages:          defaultLanguages,
 	}
 	for _, o := range options {
 		o(c)
@@ -218,11 +219,13 @@ func NoVariants() Option {
 	}
 }
 
-// AliveTimeout sets the duration in which the producers must send a
-// subsequent alive message; otherwise, the producer is considered to
-// be down and will initiate recovery when it becomes alive again
-func AliveTimeout(timeout time.Duration) Option {
+// AliveConfiguration sets alive message handling parameters.
+func AliveConfiguration(timeout, maxDelay, maxInterval time.Duration) Option {
 	return func(c *Config) {
-		c.AliveTimeout = timeout
+		c.AliveConfiguration = uof.AliveConfiguration{
+			Timeout:     timeout,
+			MaxDelay:    maxDelay,
+			MaxInterval: maxInterval,
+		}
 	}
 }
