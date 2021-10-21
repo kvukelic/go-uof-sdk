@@ -37,6 +37,9 @@ type recoveryProducer struct {
 	recoveryRequestID     int                // last recovery requestID
 	recoveryRequestCancel context.CancelFunc // cancel current recovery request
 	recoveryTimestamp     int                // last alive timestamp while producer was active (for recovery)
+
+	subProcsAdd  func()
+	subProcsDone func()
 }
 
 func (p *recoveryProducer) setStatusActive() {
@@ -196,7 +199,9 @@ func (p *recoveryProducer) resetTimeout() {
 	}
 	if p.aliveConfiguration.Timeout > 0 {
 		alive := make(chan struct{}, 1)
+		p.subProcsAdd()
 		go func() {
+			defer p.subProcsDone()
 			select {
 			case <-alive:
 				return
@@ -254,6 +259,8 @@ func newRecovery(api recoveryAPI, producers uof.ProducersChange, aliveConfig uof
 				r.timedOut <- rp.producer
 			}
 		}
+		rp.subProcsAdd = func() { r.subProcs.Add(1) }
+		rp.subProcsDone = func() { r.subProcs.Done() }
 		r.producers = append(r.producers, &rp)
 	}
 	return r
@@ -272,6 +279,7 @@ func (r *recovery) log(err error, notice bool) {
 
 func (r *recovery) cancelSubProcs() {
 	for _, p := range r.producers {
+		p.cancelTimeout()
 		if c := p.recoveryRequestCancel; c != nil {
 			c()
 		}
