@@ -33,7 +33,7 @@ type recoveryProducer struct {
 	aliveConfiguration uof.AliveConfiguration // configuration of parameters for alive handling
 	aliveTimeoutHandle func()                 // handle alive timeout
 	aliveTimeoutCancel func()                 // cancel current alive timeout timer
-	aliveTimestamp     int                    // last alive timestamp (any)
+	aliveTimestamp     int                    // last valid alive timestamp
 
 	recoveryRequestID     int                // last recovery requestID
 	recoveryRequestCancel context.CancelFunc // cancel current recovery request
@@ -85,8 +85,9 @@ func (p *recoveryProducer) setStatus(newStatus uof.ProducerStatus, reason string
 }
 
 func (p *recoveryProducer) alive(timestamp int, subscribed int) bool {
+	aliveTsp := timestamp
 	defer func() {
-		p.aliveTimestamp = timestamp
+		p.aliveTimestamp = aliveTsp
 	}()
 
 	switch p.status {
@@ -96,6 +97,7 @@ func (p *recoveryProducer) alive(timestamp int, subscribed int) bool {
 		//   - go down and wait for a valid alive message to start recovery
 		if val, ok := p.checkAliveInterval(timestamp); !ok {
 			p.setStatusDown(fmt.Sprintf("Alive tsp interval limit exceeded (%dms)", val))
+			aliveTsp = 0
 			return false
 		}
 
@@ -104,6 +106,7 @@ func (p *recoveryProducer) alive(timestamp int, subscribed int) bool {
 		//   - go down and wait for a valid alive message to start recovery
 		if val, ok := p.checkAliveDelay(timestamp); !ok {
 			p.setStatusDown(fmt.Sprintf("Alive msg delay limit exceeded (%dms)", val))
+			aliveTsp = 0
 			return false
 		}
 
@@ -126,6 +129,7 @@ func (p *recoveryProducer) alive(timestamp int, subscribed int) bool {
 		//   - signals problems in message delivery or processing
 		//   - stay down, do not attempt to recover yet
 		if _, ok := p.checkAliveDelay(timestamp); !ok {
+			aliveTsp = 0
 			return false
 		}
 
@@ -139,6 +143,7 @@ func (p *recoveryProducer) alive(timestamp int, subscribed int) bool {
 		//   - go down and wait for a valid alive message to start recovery
 		if val, ok := p.checkAliveInterval(timestamp); !ok {
 			p.setStatusDown(fmt.Sprintf("Alive tsp interval limit exceeded (%dms)", val))
+			aliveTsp = 0
 			return false
 		}
 
@@ -160,6 +165,7 @@ func (p *recoveryProducer) timedOut() error {
 
 	// producer timed out: set to down
 	p.setStatusDown(fmt.Sprint("Alive msg timeout"))
+	p.aliveTimestamp = 0
 	return nil
 }
 
@@ -399,6 +405,7 @@ func (r *recovery) connectionUp() {
 func (r *recovery) connectionDown() {
 	for _, p := range r.producers {
 		p.setStatusDown(fmt.Sprint("Connection down"))
+		p.aliveTimestamp = 0
 	}
 }
 

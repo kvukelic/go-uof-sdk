@@ -225,11 +225,11 @@ func TestAliveMaxDelay(t *testing.T) {
 	prematch.setStatus(uof.ProducerStatusDown, "")
 	assert.Equal(t, 0, prematch.aliveTimestamp)
 	assert.Equal(t, timestamp, prematch.recoveryTimestamp)
-	// late alive: stay down, update timestamp
+	// late alive: stay down, timestamp remains unset
 	aliveTs1 := uof.CurrentTimestamp() - 1000
 	r.producerAlive(uof.ProducerPrematch, aliveTs1, 1)
 	assert.Equal(t, uof.ProducerStatusDown, prematch.status)
-	assert.Equal(t, aliveTs1, prematch.aliveTimestamp)
+	assert.Equal(t, 0, prematch.aliveTimestamp)
 	assert.Equal(t, timestamp, prematch.recoveryTimestamp)
 	// timely alive: initiate recovery, update timestamp
 	aliveTs2 := uof.CurrentTimestamp() - 100
@@ -243,11 +243,11 @@ func TestAliveMaxDelay(t *testing.T) {
 	live.setStatus(uof.ProducerStatusActive, "")
 	assert.Equal(t, timestamp+1, live.recoveryTimestamp)
 	assert.Equal(t, 0, live.aliveTimestamp)
-	// late alive: go down, update timestamp
+	// late alive: go down, timestamp remains unset
 	aliveTs3 := uof.CurrentTimestamp() - 1000
 	r.producerAlive(uof.ProducerLiveOdds, aliveTs3, 1)
 	assert.Equal(t, uof.ProducerStatusDown, live.status)
-	assert.Equal(t, aliveTs3, live.aliveTimestamp)
+	assert.Equal(t, 0, live.aliveTimestamp)
 	assert.Equal(t, timestamp+1, live.recoveryTimestamp)
 	// timely alive: initiate recovery, update timestamp
 	aliveTs4 := uof.CurrentTimestamp() - 100
@@ -298,11 +298,11 @@ func TestAliveMaxInterval(t *testing.T) {
 	assert.Equal(t, uof.ProducerStatusActive, live.status)
 	assert.Equal(t, aliveTs3, live.aliveTimestamp)
 	assert.Equal(t, aliveTs3, live.recoveryTimestamp)
-	// delay exceeded: go down, update timestamp
+	// delay exceeded: go down, timestamp reset
 	aliveTs4 := uof.CurrentTimestamp() - 10000
 	r.producerAlive(uof.ProducerLiveOdds, aliveTs4, 1)
 	assert.Equal(t, uof.ProducerStatusDown, live.status)
-	assert.Equal(t, aliveTs4, live.aliveTimestamp)
+	assert.Equal(t, 0, live.aliveTimestamp)
 	assert.Equal(t, aliveTs3, live.recoveryTimestamp)
 	// delay ok: initiate recovery, update timestamp
 	aliveTs5 := uof.CurrentTimestamp() - 7000
