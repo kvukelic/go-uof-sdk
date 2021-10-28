@@ -222,7 +222,7 @@ func TestAliveMaxDelay(t *testing.T) {
 
 	// producer in status down
 	prematch := r.find(uof.ProducerPrematch)
-	prematch.setStatus(uof.ProducerStatusDown)
+	prematch.setStatus(uof.ProducerStatusDown, "")
 	assert.Equal(t, 0, prematch.aliveTimestamp)
 	assert.Equal(t, timestamp, prematch.recoveryTimestamp)
 	// late alive: stay down, update timestamp
@@ -240,7 +240,7 @@ func TestAliveMaxDelay(t *testing.T) {
 
 	// producer in status active
 	live := r.find(uof.ProducerLiveOdds)
-	live.setStatus(uof.ProducerStatusActive)
+	live.setStatus(uof.ProducerStatusActive, "")
 	assert.Equal(t, timestamp+1, live.recoveryTimestamp)
 	assert.Equal(t, 0, live.aliveTimestamp)
 	// late alive: go down, update timestamp
@@ -269,7 +269,7 @@ func TestAliveMaxInterval(t *testing.T) {
 
 	// producer in status down - no interval checks
 	prematch := r.find(uof.ProducerPrematch)
-	prematch.setStatus(uof.ProducerStatusDown)
+	prematch.setStatus(uof.ProducerStatusDown, "")
 	assert.Equal(t, 0, prematch.aliveTimestamp)
 	assert.Equal(t, timestamp, prematch.recoveryTimestamp)
 	// initial alive: initate recovery
@@ -279,7 +279,7 @@ func TestAliveMaxInterval(t *testing.T) {
 	assert.Equal(t, aliveTs1, prematch.aliveTimestamp)
 	assert.Equal(t, timestamp, prematch.recoveryTimestamp)
 	// reset to status down
-	prematch.setStatus(uof.ProducerStatusDown)
+	prematch.setStatus(uof.ProducerStatusDown, "")
 	// next alive; initiate recovery
 	aliveTs2 := uof.CurrentTimestamp() - 6000
 	r.producerAlive(uof.ProducerPrematch, aliveTs2, 1)
@@ -289,7 +289,7 @@ func TestAliveMaxInterval(t *testing.T) {
 
 	// producer in status active
 	live := r.find(uof.ProducerLiveOdds)
-	live.setStatus(uof.ProducerStatusActive)
+	live.setStatus(uof.ProducerStatusActive, "")
 	assert.Equal(t, 0, live.aliveTimestamp)
 	assert.Equal(t, timestamp+1, live.recoveryTimestamp)
 	// initial alive: update timestamp and recovery timestamp
@@ -324,7 +324,7 @@ func TestAliveTimeout(t *testing.T) {
 	r.timedOut = make(chan uof.Producer, 16)
 
 	prematch := r.find(uof.ProducerPrematch)
-	prematch.setStatus(uof.ProducerStatusActive)
+	prematch.setStatus(uof.ProducerStatusActive, "")
 	r.producerAlive(uof.ProducerPrematch, uof.CurrentTimestamp(), 1)
 	assert.Equal(t, 0, len(r.timedOut))
 	time.Sleep(100 * time.Millisecond)
@@ -335,7 +335,7 @@ func TestAliveTimeout(t *testing.T) {
 	assert.Equal(t, uof.ProducerPrematch, p)
 
 	live := r.find(uof.ProducerLiveOdds)
-	live.setStatus(uof.ProducerStatusActive)
+	live.setStatus(uof.ProducerStatusActive, "")
 	r.producerAlive(uof.ProducerLiveOdds, uof.CurrentTimestamp(), 1)
 	assert.Equal(t, 0, len(r.timedOut))
 	time.Sleep(100 * time.Millisecond)

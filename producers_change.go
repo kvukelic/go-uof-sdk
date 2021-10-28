@@ -7,6 +7,7 @@ type ProducerChange struct {
 	Status     ProducerStatus `json:"status,omitempty"`
 	RecoveryID int            `json:"recoveryID,omitempty"`
 	Timestamp  int            `json:"timestamp,omitempty"`
+	Comment    string         `json:"comment,omitempty"`
 }
 
 func (p *ProducersChange) Add(producer Producer, timestamp int) {
@@ -20,3 +21,15 @@ const (
 	ProducerStatusActive     ProducerStatus = 1
 	ProducerStatusInRecovery ProducerStatus = 2
 )
+
+func (p ProducerStatus) String() string {
+	switch p {
+	case ProducerStatusDown:
+		return "down"
+	case ProducerStatusActive:
+		return "active"
+	case ProducerStatusInRecovery:
+		return "recovery"
+	}
+	return ""
+}

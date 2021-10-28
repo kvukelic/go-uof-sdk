@@ -26,8 +26,9 @@ import (
 type recoveryProducer struct {
 	producer uof.Producer
 
-	status          uof.ProducerStatus // current status of the producer
-	statusChangedAt int                // timestamp of last status change
+	status              uof.ProducerStatus // current status of the producer
+	statusChangedAt     int                // timestamp of last status change
+	statusChangeComment string             // explanatory message about the last status change
 
 	aliveConfiguration uof.AliveConfiguration // configuration of parameters for alive handling
 	aliveTimeoutHandle func()                 // handle alive timeout
@@ -42,36 +43,38 @@ type recoveryProducer struct {
 	subProcsDone func()
 }
 
-func (p *recoveryProducer) setStatusActive() {
+func (p *recoveryProducer) setStatusActive(reason string) {
 	p.recoveryRequestID = 0
 	if p.recoveryRequestCancel != nil {
 		p.recoveryRequestCancel()
 	}
-	p.setStatus(uof.ProducerStatusActive)
+	p.setStatus(uof.ProducerStatusActive, reason)
 	p.resetTimeout()
 }
 
-func (p *recoveryProducer) setStatusDown() {
+func (p *recoveryProducer) setStatusDown(reason string) {
 	p.recoveryRequestID = 0
 	if p.recoveryRequestCancel != nil {
 		p.recoveryRequestCancel()
 	}
 	p.cancelTimeout()
-	p.setStatus(uof.ProducerStatusDown)
+	p.setStatus(uof.ProducerStatusDown, reason)
 }
 
 func (p *recoveryProducer) setStatusRecovery(requestID int) {
 	p.cancelTimeout()
-	p.setStatus(uof.ProducerStatusInRecovery)
+	reason := fmt.Sprintf("Initiating recovery (ID: %d)", requestID)
+	p.setStatus(uof.ProducerStatusInRecovery, reason)
 	if p.recoveryRequestCancel != nil {
 		p.recoveryRequestCancel()
 	}
 	p.recoveryRequestID = requestID
 }
 
-func (p *recoveryProducer) setStatus(newStatus uof.ProducerStatus) {
+func (p *recoveryProducer) setStatus(newStatus uof.ProducerStatus, reason string) {
 	if p.status != newStatus {
 		p.status = newStatus
+		p.statusChangeComment = fmt.Sprintf("%s. Status set to [%s].", reason, newStatus.String())
 		ct := uof.CurrentTimestamp()
 		if p.statusChangedAt >= ct {
 			// ensure monotonic increase (for tests)
@@ -91,16 +94,16 @@ func (p *recoveryProducer) alive(timestamp int, subscribed int) bool {
 		// irregular alive timestamp interval
 		//   - signals problems on source server
 		//   - go down and wait for a valid alive message to start recovery
-		if !p.checkAliveInterval(timestamp) {
-			p.setStatusDown()
+		if val, ok := p.checkAliveInterval(timestamp); !ok {
+			p.setStatusDown(fmt.Sprintf("Alive tsp interval limit exceeded (%dms)", val))
 			return false
 		}
 
 		// delay in receiving the alive message
 		//   - signals problems in message delivery or processing
 		//   - go down and wait for a valid alive message to start recovery
-		if !p.checkAliveDelay(timestamp) {
-			p.setStatusDown()
+		if val, ok := p.checkAliveDelay(timestamp); !ok {
+			p.setStatusDown(fmt.Sprintf("Alive msg delay limit exceeded (%dms)", val))
 			return false
 		}
 
@@ -122,7 +125,7 @@ func (p *recoveryProducer) alive(timestamp int, subscribed int) bool {
 		// delay in receiving the alive message
 		//   - signals problems in message delivery or processing
 		//   - stay down, do not attempt to recover yet
-		if !p.checkAliveDelay(timestamp) {
+		if _, ok := p.checkAliveDelay(timestamp); !ok {
 			return false
 		}
 
@@ -134,8 +137,8 @@ func (p *recoveryProducer) alive(timestamp int, subscribed int) bool {
 		// irregular alive timestamp interval
 		//   - signals problems on source server
 		//   - go down and wait for a valid alive message to start recovery
-		if !p.checkAliveInterval(timestamp) {
-			p.setStatusDown()
+		if val, ok := p.checkAliveInterval(timestamp); !ok {
+			p.setStatusDown(fmt.Sprintf("Alive tsp interval limit exceeded (%dms)", val))
 			return false
 		}
 
@@ -156,7 +159,7 @@ func (p *recoveryProducer) timedOut() error {
 	}
 
 	// producer timed out: set to down
-	p.setStatusDown()
+	p.setStatusDown(fmt.Sprint("Alive msg timeout"))
 	return nil
 }
 
@@ -172,24 +175,24 @@ func (p *recoveryProducer) snapshotComplete(requestID int) error {
 	}
 
 	// snapshot complete: set to active
-	p.setStatusActive()
+	p.setStatusActive(fmt.Sprintf("Snapshot complete (ID: %d)", requestID))
 	return nil
 }
 
-func (p *recoveryProducer) checkAliveInterval(timestamp int) bool {
+func (p *recoveryProducer) checkAliveInterval(timestamp int) (int, bool) {
 	if p.aliveConfiguration.MaxInterval <= 0 || p.aliveTimestamp == 0 {
-		return true
+		return 0, true
 	}
 	interval := timestamp - p.aliveTimestamp
-	return int64(interval) <= p.aliveConfiguration.MaxInterval.Milliseconds()
+	return interval, int64(interval) <= p.aliveConfiguration.MaxInterval.Milliseconds()
 }
 
-func (p *recoveryProducer) checkAliveDelay(timestamp int) bool {
+func (p *recoveryProducer) checkAliveDelay(timestamp int) (int, bool) {
 	if p.aliveConfiguration.MaxDelay < 0 {
-		return true
+		return 0, true
 	}
 	delay := uof.CurrentTimestamp() - timestamp
-	return int64(delay) <= p.aliveConfiguration.MaxDelay.Milliseconds()
+	return delay, int64(delay) <= p.aliveConfiguration.MaxDelay.Milliseconds()
 }
 
 func (p *recoveryProducer) resetTimeout() {
@@ -395,7 +398,7 @@ func (r *recovery) connectionUp() {
 // set status of all producers to down
 func (r *recovery) connectionDown() {
 	for _, p := range r.producers {
-		p.setStatusDown()
+		p.setStatusDown(fmt.Sprint("Connection down"))
 	}
 }
 
@@ -455,6 +458,7 @@ func (r *recovery) producersChangeMessage() *uof.Message {
 			Producer:  p.producer,
 			Status:    p.status,
 			Timestamp: p.statusChangedAt,
+			Comment:   p.statusChangeComment,
 		}
 		if p.status == uof.ProducerStatusInRecovery {
 			pc.RecoveryID = p.recoveryRequestID
