@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/minus5/go-uof-sdk"
+	"github.com/minus5/svckit/log"
 )
 
 // on start recover all after timestamp or full
@@ -96,18 +97,24 @@ func (p *recoveryProducer) alive(timestamp int, subscribed int) bool {
 		//   - signals problems on source server
 		//   - go down and wait for a valid alive message to start recovery
 		if val, ok := p.checkAliveInterval(timestamp); !ok {
-			p.setStatusDown(fmt.Sprintf("Alive tsp interval limit exceeded (%dms)", val))
-			aliveTsp = 0
-			return false
+			log.Error(fmt.Errorf("Alive tsp interval limit exceeded (%dms)", val))
+			/*
+				p.setStatusDown(fmt.Sprintf("Alive tsp interval limit exceeded (%dms)", val))
+				aliveTsp = 0
+				return false
+			*/
 		}
 
 		// delay in receiving the alive message
 		//   - signals problems in message delivery or processing
 		//   - go down and wait for a valid alive message to start recovery
 		if val, ok := p.checkAliveDelay(timestamp); !ok {
-			p.setStatusDown(fmt.Sprintf("Alive msg delay limit exceeded (%dms)", val))
-			aliveTsp = 0
-			return false
+			log.Error(fmt.Errorf("Alive msg delay limit exceeded (%dms)", val))
+			/*
+				p.setStatusDown(fmt.Sprintf("Alive msg delay limit exceeded (%dms)", val))
+				aliveTsp = 0
+				return false
+			*/
 		}
 
 		// attribute 'subscribed' is set to 0
@@ -142,9 +149,12 @@ func (p *recoveryProducer) alive(timestamp int, subscribed int) bool {
 		//   - signals problems on source server
 		//   - go down and wait for a valid alive message to start recovery
 		if val, ok := p.checkAliveInterval(timestamp); !ok {
-			p.setStatusDown(fmt.Sprintf("Alive tsp interval limit exceeded (%dms)", val))
-			aliveTsp = 0
-			return false
+			log.Error(fmt.Errorf("Alive tsp interval limit exceeded (%dms)", val))
+			/*
+				p.setStatusDown(fmt.Sprintf("Alive tsp interval limit exceeded (%dms)", val))
+				aliveTsp = 0
+				return false
+			*/
 		}
 
 		// alive message is ok
@@ -164,8 +174,11 @@ func (p *recoveryProducer) timedOut() error {
 	}
 
 	// producer timed out: set to down
-	p.setStatusDown(fmt.Sprint("Alive msg timeout"))
-	p.aliveTimestamp = 0
+	log.Error(fmt.Errorf("Alive msg timeout"))
+	/*
+		p.setStatusDown(fmt.Sprint("Alive msg timeout"))
+		p.aliveTimestamp = 0
+	*/
 	return nil
 }
 
