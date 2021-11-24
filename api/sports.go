@@ -64,7 +64,7 @@ type scheduleRsp struct {
 }
 
 // Fixtures gets all the fixtures with schedule before to
-func (a *API) Fixtures(lang uof.Lang, to time.Time) (<-chan uof.Fixture, <-chan error) {
+func (a *API) Fixtures(lang uof.Lang, to time.Time, max int) (<-chan uof.Fixture, <-chan error) {
 	errc := make(chan error, 1)
 	out := make(chan uof.Fixture)
 	go func() {
@@ -78,8 +78,9 @@ func (a *API) Fixtures(lang uof.Lang, to time.Time) (<-chan uof.Fixture, <-chan 
 				return uof.Notice("unmarshal", err)
 			}
 			for _, f := range sr.Fixtures {
+				max--
 				out <- f
-				if f.Scheduled.After(to) {
+				if f.Scheduled.After(to) || max <= 0 {
 					done = true
 				}
 			}

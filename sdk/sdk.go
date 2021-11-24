@@ -19,7 +19,8 @@ type ErrorListenerFunc func(err error)
 type Config struct {
 	BookmakerID   string
 	Token         string
-	Fixtures      time.Time
+	FixturesTo    time.Time
+	FixturesMax   int
 	Variants      bool
 	AliveTimeout  time.Duration
 	Recovery      []uof.ProducerChange
@@ -57,7 +58,7 @@ func Run(ctx context.Context, options ...Option) error {
 
 	stages := []pipe.InnerStage{
 		pipe.Markets(apiConn, c.Languages, c.Variants),
-		pipe.Fixture(apiConn, c.Languages, c.Fixtures),
+		pipe.Fixture(apiConn, c.Languages, c.FixturesTo, c.FixturesMax),
 		pipe.Player(apiConn, c.Languages),
 		pipe.BetStop(),
 	}
@@ -198,9 +199,10 @@ func Recovery(pc []uof.ProducerChange) Option {
 // calls required during recovery.
 //
 // Ref: https://docs.betradar.com/display/BD/UOF+-+Fixtures+in+the+API
-func Fixtures(to time.Time) Option {
+func Fixtures(to time.Time, max int) Option {
 	return func(c *Config) {
-		c.Fixtures = to
+		c.FixturesTo = to
+		c.FixturesMax = max
 	}
 }
 

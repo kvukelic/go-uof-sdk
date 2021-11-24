@@ -21,7 +21,7 @@ func (m *fixtureAPIMock) Fixture(lang uof.Lang, eventURN uof.URN) ([]byte, error
 	return nil, nil
 }
 
-func (m *fixtureAPIMock) Fixtures(lang uof.Lang, to time.Time) (<-chan uof.Fixture, <-chan error) {
+func (m *fixtureAPIMock) Fixtures(lang uof.Lang, to time.Time, max int) (<-chan uof.Fixture, <-chan error) {
 	m.preloadTo = to
 	out := make(chan uof.Fixture)
 	errc := make(chan error)
@@ -35,7 +35,7 @@ func (m *fixtureAPIMock) Fixtures(lang uof.Lang, to time.Time) (<-chan uof.Fixtu
 func TestFixturePipe(t *testing.T) {
 	a := &fixtureAPIMock{}
 	preloadTo := time.Now().Add(time.Hour)
-	f := Fixture(a, []uof.Lang{uof.LangEN, uof.LangDE}, preloadTo)
+	f := Fixture(a, []uof.Lang{uof.LangEN, uof.LangDE}, preloadTo, DefaultMaxPreloadFixtures)
 	assert.NotNil(t, f)
 
 	in := make(chan *uof.Message)

@@ -64,6 +64,7 @@ func main() {
 	go debugHTTP()
 
 	preloadTo := time.Now().Add(24 * time.Hour)
+	preloadMax := pipe.DefaultMaxPreloadFixtures
 
 	timestamp := uof.CurrentTimestamp() - 5*60*1000 // -5 minutes
 	var pc uof.ProducersChange
@@ -74,7 +75,7 @@ func main() {
 		sdk.Credentials(bookmakerID, token),
 		sdk.Staging(),
 		sdk.Recovery(pc),
-		sdk.Fixtures(preloadTo),
+		sdk.Fixtures(preloadTo, preloadMax),
 		sdk.Languages(uof.Languages("en,de,hr")),
 		sdk.BufferedConsumer(pipe.FileStore("./tmp"), 1024),
 		sdk.Consumer(logMessages),
