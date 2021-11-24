@@ -212,19 +212,25 @@ func (o *OddsChange) EachPlayer(handler func(int)) {
 	if o == nil {
 		return
 	}
+	found := make(map[int]bool)
 	for _, m := range o.Markets {
 		for _, o := range m.Outcomes {
 			if id := o.PlayerID; id != 0 {
-				handler(id)
+				if f, ok := found[id]; !ok || !f {
+					handler(id)
+					found[id] = true
+				}
 			}
 		}
 		// fetch player if provided as market specifier
 		// <market id="888" specifiers="player=sr:player:575270">
 		// <market id="891" specifiers="goalnr=1|player=sr:player:833167">
 		if playerID, ok := m.Specifiers["player"]; ok {
-			id, err := strconv.Atoi(playerID)
-			if err == nil {
-				handler(id)
+			if id, err := strconv.Atoi(playerID); err == nil && id != 0 {
+				if f, ok := found[id]; !ok || !f {
+					handler(id)
+					found[id] = true
+				}
 			}
 		}
 	}

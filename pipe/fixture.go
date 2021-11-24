@@ -7,32 +7,36 @@ import (
 	"github.com/minus5/go-uof-sdk"
 )
 
+const DefaultMaxPreloadFixtures = 50000
+
 type fixtureAPI interface {
 	Fixture(lang uof.Lang, eventURN uof.URN) ([]byte, error)
-	Fixtures(lang uof.Lang, to time.Time) (<-chan uof.Fixture, <-chan error)
+	Fixtures(lang uof.Lang, to time.Time, max int) (<-chan uof.Fixture, <-chan error)
 }
 
 type fixture struct {
-	api       fixtureAPI
-	languages []uof.Lang // suported languages
-	em        *expireMap
-	errc      chan<- error
-	out       chan<- *uof.Message
-	preloadTo time.Time
-	subProcs  *sync.WaitGroup
-	rateLimit chan struct{}
+	api        fixtureAPI
+	languages  []uof.Lang // suported languages
+	em         *expireMap
+	errc       chan<- error
+	out        chan<- *uof.Message
+	preloadTo  time.Time
+	preloadMax int
+	subProcs   *sync.WaitGroup
+	rateLimit  chan struct{}
 	sync.Mutex
 }
 
-func Fixture(api fixtureAPI, languages []uof.Lang, preloadTo time.Time) InnerStage {
+func Fixture(api fixtureAPI, languages []uof.Lang, preloadTo time.Time, preloadMax int) InnerStage {
 	f := &fixture{
-		api:       api,
-		languages: languages,
-		em:        newExpireMap(time.Minute),
-		//requests:  make(map[string]time.Time),
-		subProcs:  &sync.WaitGroup{},
-		rateLimit: make(chan struct{}, ConcurentAPICallsLimit),
-		preloadTo: preloadTo,
+		api:        api,
+		languages:  languages,
+		em:         newExpireMap(time.Minute),
+		subProcs:   &sync.WaitGroup{},
+		rateLimit:  make(chan struct{}, ConcurentAPICallsLimit),
+		preloadTo:  preloadTo,
+		preloadMax: preloadMax,
+		// requests:   make(map[string]time.Time),
 	}
 	return StageWithSubProcessesSync(f.loop)
 }
@@ -104,7 +108,7 @@ func (f *fixture) preload() {
 	for _, lang := range f.languages {
 		go func(lang uof.Lang) {
 			defer wg.Done()
-			in, errc := f.api.Fixtures(lang, f.preloadTo)
+			in, errc := f.api.Fixtures(lang, f.preloadTo, f.preloadMax)
 			for x := range in {
 				f.out <- uof.NewFixtureMessage(lang, x, uof.CurrentTimestamp())
 				f.em.insert(uof.UIDWithLang(x.URN.EventID(), lang))
