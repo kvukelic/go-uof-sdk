@@ -109,7 +109,8 @@ func testPlayer(t *testing.T, a *API) {
 func testFixtures(t *testing.T, a *API) {
 	lang := uof.LangEN
 	to := time.Now() //.Add(24*3*time.Hour)
-	in, errc := a.Fixtures(lang, to)
+	max := 50000
+	in, errc := a.Fixtures(lang, to, max)
 	for f := range in {
 		if testing.Verbose() {
 			fmt.Printf("\t%s\n", f.PP())
