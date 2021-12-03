@@ -74,6 +74,7 @@ type Category struct {
 
 type Competitor struct {
 	ID           int                `json:"id"`
+	Type         string             `json:"type"`
 	Qualifier    string             `xml:"qualifier,attr,omitempty" json:"qualifier,omitempty"`
 	Name         string             `xml:"name,attr" json:"name"`
 	Abbreviation string             `xml:"abbreviation,attr" json:"abbreviation"`
@@ -285,6 +286,7 @@ func (t *Competitor) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 		return err
 	}
 	t.ID = overlay.URN.ID()
+	t.Type = overlay.URN.LastNID()
 	return nil
 }
 
