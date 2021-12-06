@@ -93,7 +93,8 @@ func NewQueueMessage(routingKey string, body []byte) (*Message, error) {
 func (m *Message) parseRoutingKey(routingKey string) error {
 	p := strings.Split(routingKey, ".")
 	if len(p) < 7 {
-		return fmt.Errorf("unknown routing key: %s", routingKey)
+		err := fmt.Errorf("unknown routing key: %s", routingKey)
+		return E("message.RoutingKey", err)
 	}
 	part := func(i int) string {
 		if len(p) > i && p[i] != "-" {
@@ -115,7 +116,8 @@ func (m *Message) parseRoutingKey(routingKey string) error {
 	m.Scope.Parse(prematchInterest, liveInterest)
 
 	if m.Type == MessageTypeUnknown {
-		return fmt.Errorf("unknown message type for routing key: %s", routingKey)
+		err := fmt.Errorf("unknown message type for routing key: %s", routingKey)
+		return E("message.RoutingKey", err)
 	}
 
 	// if eventID != "" {
@@ -128,7 +130,8 @@ func (m *Message) parseRoutingKey(routingKey string) error {
 		m.EventURN = URN(eventURN + ":" + eventID)
 		id := m.EventURN.EventID()
 		if id == 0 {
-			return fmt.Errorf("unknown eventID for URN: %s", m.EventURN)
+			err := fmt.Errorf("unknown eventID for URN: %s", m.EventURN)
+			return E("message.RoutingKey", err)
 		}
 		m.EventID = id
 	}
@@ -207,10 +210,10 @@ func (m *Message) unpack() error {
 		m.Player = &pp.Player
 	default:
 		err := fmt.Errorf("unknown message type %d", m.Type)
-		return Notice("message.unpack", err)
+		return Notice("message.Unpack", err)
 	}
 	if err != nil {
-		return Notice("message.unpack", err)
+		return Notice("message.Unpack", err)
 	}
 	return nil
 }

@@ -32,7 +32,7 @@ func Dial(ctx context.Context, env uof.Environment, bookmakerID, token string) (
 	case uof.Production:
 		return DialProduction(ctx, bookmakerID, token)
 	default:
-		return nil, uof.Notice("queue dial", fmt.Errorf("unknown environment %d", env))
+		return nil, uof.Notice("queue.Dial", fmt.Errorf("unknown environment %d", env))
 	}
 }
 

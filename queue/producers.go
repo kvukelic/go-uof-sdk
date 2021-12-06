@@ -80,7 +80,7 @@ func WithProducerHandling(ctx context.Context, conn *Connection, producers []Pro
 						if p != nil {
 							err := p.snapshotComplete(m.SnapshotComplete.RequestID)
 							if err != nil {
-								errc <- uof.E("snapshot", err)
+								errc <- uof.E("queue.Snapshot", err)
 							}
 						}
 					}
@@ -90,7 +90,7 @@ func WithProducerHandling(ctx context.Context, conn *Connection, producers []Pro
 					if p != nil {
 						err := p.timeout()
 						if err != nil {
-							errc <- uof.E("timeout", err)
+							errc <- uof.E("queue.Timeout", err)
 						}
 					}
 				}

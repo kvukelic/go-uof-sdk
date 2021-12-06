@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/minus5/go-uof-sdk"
+	"github.com/pkg/errors"
 )
 
 type recovery struct {
@@ -30,11 +31,15 @@ func newRecovery(api recoveryAPI) *recovery {
 	}
 }
 
-func (r *recovery) log(err error) {
+func (r *recovery) logError(err error) {
 	select {
 	case r.errc <- uof.E("recovery", err):
 	default:
 	}
+}
+
+func (r *recovery) noticeError(err error) {
+	r.errc <- uof.Notice("recovery", err)
 }
 
 func (r *recovery) cancelAllRecoveries() {
@@ -61,13 +66,12 @@ func (r *recovery) enterRecovery(producer uof.Producer, timestamp int, requestID
 		defer r.subProcs.Done()
 		for {
 			recoveryTsp := recoveryTimestamp(timestamp, producer)
-			op := fmt.Sprintf("recovery for %s, timestamp: %d, requestID: %d", producer.Code(), recoveryTsp, requestID)
-			r.log(fmt.Errorf("starting %s", op))
+			r.logError(fmt.Errorf("%s in recovery; timestamp: %d, requestID: %d", producer.Code(), recoveryTsp, requestID))
 			err := r.api.RequestRecovery(producer, recoveryTsp, requestID)
 			if err == nil {
 				return
 			}
-			r.errc <- uof.Notice(op, err)
+			r.noticeError(errors.Wrapf(err, "%s in recovery; timestamp: %d, requestID: %d - ERROR", producer.Code(), recoveryTsp, requestID))
 			select {
 			case <-time.After(time.Minute):
 			case <-ctx.Done():

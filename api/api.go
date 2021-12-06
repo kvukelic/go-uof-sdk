@@ -37,7 +37,7 @@ func Dial(ctx context.Context, env uof.Environment, token string) (*API, error) 
 	case uof.Production:
 		return Production(ctx, token)
 	default:
-		return nil, uof.Notice("queue dial", fmt.Errorf("unknown environment %d", env))
+		return nil, uof.Notice("queue.Dial", fmt.Errorf("unknown environment %d", env))
 	}
 }
 

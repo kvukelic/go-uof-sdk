@@ -35,7 +35,7 @@ func WithReconnect(ctx context.Context, conn *Connection) func() (<-chan *uof.Me
 				conn = nc // replace existing with new connection
 			}
 			if err != nil {
-				errc <- errors.Wrap(err, "reconnect failed")
+				errc <- uof.E("queue.Reconnect", errors.Wrap(err, "FAIL"))
 			}
 			return err
 		}
