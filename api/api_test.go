@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -93,10 +92,8 @@ func testMarketVariant(t *testing.T, a *API) {
 func testFixture(t *testing.T, a *API) {
 	lang := uof.LangEN
 	f, err := a.Fixture(lang, "sr:match:8696826")
-	assert.NoError(t, err)
-	assert.NotEqual(t, 0, len(f))
-	assert.NotEqual(t, -1, bytes.Index(f, []byte("sr:match:8696826")))
-	assert.NotEqual(t, -1, bytes.Index(f, []byte("IK Oddevold")))
+	assert.Nil(t, err)
+	assert.Equal(t, "IK Oddevold", f.Home.Name)
 }
 
 func testPlayer(t *testing.T, a *API) {
@@ -110,7 +107,7 @@ func testFixtures(t *testing.T, a *API) {
 	lang := uof.LangEN
 	to := time.Now() //.Add(24*3*time.Hour)
 	max := 50000
-	in, errc := a.Fixtures(lang, to, max)
+	in, _, errc := a.FixtureSchedule(lang, to, max)
 	for f := range in {
 		if testing.Verbose() {
 			fmt.Printf("\t%s\n", f.PP())

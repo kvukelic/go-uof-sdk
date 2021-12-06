@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/xml"
 	"time"
 
 	"github.com/minus5/go-uof-sdk"
@@ -14,6 +13,7 @@ const (
 	pathPlayer        = "/v1/sports/{{.Lang}}/players/sr:player:{{.PlayerID}}/profile.xml"
 	events            = "/v1/sports/{{.Lang}}/schedules/pre/schedule.xml?start={{.Start}}&limit={{.Limit}}"
 	liveEvents        = "/v1/sports/{{.Lang}}/schedules/live/schedule.xml"
+	fixtureChanges    = "/v1/sports/{{.Lang}}/fixtures/changes.xml?afterDateTime={{.DateTime}}"
 )
 
 // Markets all currently available markets for a language
@@ -28,12 +28,9 @@ func (a *API) MarketVariant(lang uof.Lang, marketID int, variant string) (uof.Ma
 }
 
 // Fixture lists the fixture for a specified sport event
-func (a *API) Fixture(lang uof.Lang, eventURN uof.URN) ([]byte, error) {
-	buf, err := a.get(pathFixture, &params{Lang: lang, EventURN: eventURN})
-	if err != nil {
-		return nil, err
-	}
-	return buf, err
+func (a *API) Fixture(lang uof.Lang, eventURN uof.URN) (*uof.Fixture, error) {
+	var fr fixtureRsp
+	return &fr.Fixture, a.getAs(&fr, pathFixture, &params{Lang: lang, EventURN: eventURN})
 }
 
 func (a *API) Player(lang uof.Lang, playerID int) (*uof.Player, error) {
@@ -58,63 +55,90 @@ type fixtureRsp struct {
 	GeneratedAt time.Time   `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
 }
 
+type fixtureChangesRsp struct {
+	Changes     []uof.Change `xml:"fixture_change,omitempty" json:"fixtureChange,omitempty"`
+	GeneratedAt time.Time    `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
+}
+
 type scheduleRsp struct {
 	Fixtures    []uof.Fixture `xml:"sport_event,omitempty" json:"sportEvent,omitempty"`
 	GeneratedAt time.Time     `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
 }
 
-// Fixtures gets all the fixtures with schedule before to
-func (a *API) Fixtures(lang uof.Lang, to time.Time, max int) (<-chan uof.Fixture, <-chan error) {
+// FixtureChanges retrieves a list of fixture changes starting from the time
+// instant 'from'. It also returns the timestamp of the API response.
+func (a *API) FixtureChanges(lang uof.Lang, from time.Time) ([]uof.Change, time.Time, error) {
+	var fcr fixtureChangesRsp
+	dateTime := from.UTC().Format("2006-01-02T15:04:05")
+	return fcr.Changes, fcr.GeneratedAt, a.getAs(&fcr, fixtureChanges, &params{Lang: lang, DateTime: dateTime})
+}
+
+// FixtureSchedule gets all fixtures from schedule up to the time instant 'to'.
+// Due to pagination of the endpoint, the fixtures are returned asynchronously
+// via a channel. A separate channel, that receives and buffers the earliest
+// timestamp of all received responses, is also returned.
+func (a *API) FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.Fixture, <-chan time.Time, <-chan error) {
 	errc := make(chan error, 1)
+	tsp := make(chan time.Time, 1)
 	out := make(chan uof.Fixture)
 	go func() {
 		defer close(out)
+		defer close(tsp)
 		defer close(errc)
-		done := false
 
-		parse := func(buf []byte) error {
-			var sr scheduleRsp
-			if err := xml.Unmarshal(buf, &sr); err != nil {
-				return uof.Notice("unmarshal", err)
-			}
-			for _, f := range sr.Fixtures {
-				max--
+		rspTimestamp := time.Time{}
+		lastSchedule := time.Time{}
+		fixtureCount := 0
+
+		defer func() {
+			tsp <- rspTimestamp
+		}()
+
+		sendFixtures := func(rsp scheduleRsp) {
+			rspTimestamp = firstNonZero(rspTimestamp, rsp.GeneratedAt)
+			fixtureCount += len(rsp.Fixtures)
+			for _, f := range rsp.Fixtures {
+				lastSchedule = lastNonZero(lastSchedule, f.Scheduled)
 				out <- f
-				if f.Scheduled.After(to) || max <= 0 {
-					done = true
-				}
 			}
-			return nil
 		}
 
-		// first live events
-		buf, err := a.get(liveEvents, &params{Lang: lang})
+		// step 1: get schedule of currently live events
+		var liveRsp scheduleRsp
+		err := a.getAs(&liveRsp, liveEvents, &params{Lang: lang})
 		if err != nil {
 			errc <- err
 			return
 		}
-		if err := parse(buf); err != nil {
-			errc <- err
-			return
-		}
+		sendFixtures(liveRsp)
 
-		// than all events which has scheduled before to
+		// step 2: get schedule of active prematch events (until 'to')
 		limit := 1000
-		for start := 0; true; start += limit {
-			buf, err := a.get(events, &params{Lang: lang, Start: start, Limit: limit})
+		for start, done := 0, false; !done; start += limit {
+			var preRsp scheduleRsp
+			err = a.getAs(&preRsp, events, &params{Lang: lang, Start: start, Limit: limit})
 			if err != nil {
 				errc <- err
 				return
 			}
-			if err := parse(buf); err != nil {
-				errc <- err
-				return
-			}
-			if done {
-				return
-			}
+			sendFixtures(preRsp)
+			done = fixtureCount >= max || lastSchedule.After(to)
 		}
 	}()
 
-	return out, errc
+	return out, tsp, errc
+}
+
+func firstNonZero(a, b time.Time) time.Time {
+	if a.IsZero() || (!b.IsZero() && b.Before(a)) {
+		return b
+	}
+	return a
+}
+
+func lastNonZero(a, b time.Time) time.Time {
+	if a.IsZero() || (!b.IsZero() && b.After(a)) {
+		return b
+	}
+	return a
 }

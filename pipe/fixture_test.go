@@ -16,26 +16,34 @@ type fixtureAPIMock struct {
 	sync.Mutex
 }
 
-func (m *fixtureAPIMock) Fixture(lang uof.Lang, eventURN uof.URN) ([]byte, error) {
+func (m *fixtureAPIMock) Fixture(lang uof.Lang, eventURN uof.URN) (*uof.Fixture, error) {
 	m.eventURN = eventURN
-	return nil, nil
+	return &uof.Fixture{
+		URN: eventURN,
+	}, nil
 }
 
-func (m *fixtureAPIMock) Fixtures(lang uof.Lang, to time.Time, max int) (<-chan uof.Fixture, <-chan error) {
+func (m *fixtureAPIMock) FixtureChanges(lang uof.Lang, from time.Time) ([]uof.Change, time.Time, error) {
+	return []uof.Change{}, time.Now(), nil
+}
+
+func (m *fixtureAPIMock) FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.Fixture, <-chan time.Time, <-chan error) {
 	m.preloadTo = to
 	out := make(chan uof.Fixture)
+	tspc := make(chan time.Time)
 	errc := make(chan error)
 	go func() {
 		close(out)
+		close(tspc)
 		close(errc)
 	}()
-	return out, errc
+	return out, tspc, errc
 }
 
 func TestFixturePipe(t *testing.T) {
 	a := &fixtureAPIMock{}
 	preloadTo := time.Now().Add(time.Hour)
-	f := Fixture(a, []uof.Lang{uof.LangEN, uof.LangDE}, preloadTo, DefaultMaxPreloadFixtures)
+	f := Fixture(a, []uof.Lang{uof.LangEN, uof.LangDE}, preloadTo, 0)
 	assert.NotNil(t, f)
 
 	in := make(chan *uof.Message)

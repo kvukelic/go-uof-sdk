@@ -64,18 +64,13 @@ func main() {
 	go debugHTTP()
 
 	preloadTo := time.Now().Add(24 * time.Hour)
-	preloadMax := pipe.DefaultMaxPreloadFixtures
-
 	timestamp := uof.CurrentTimestamp() - 5*60*1000 // -5 minutes
-	var pc uof.ProducersChange
-	pc.Add(uof.ProducerPrematch, timestamp)
-	pc.Add(uof.ProducerLiveOdds, timestamp)
-
 	err := sdk.Run(exitSignal(),
 		sdk.Credentials(bookmakerID, token),
 		sdk.Staging(),
-		sdk.Recovery(pc),
-		sdk.Fixtures(preloadTo, preloadMax),
+		sdk.Subscribe(uof.ProducerPrematch, sdk.RecoverFrom(timestamp)),
+		sdk.Subscribe(uof.ProducerLiveOdds, sdk.RecoverFrom(timestamp)),
+		sdk.FixturePreload(preloadTo, 0),
 		sdk.Languages(uof.Languages("en,de,hr")),
 		sdk.BufferedConsumer(pipe.FileStore("./tmp"), 1024),
 		sdk.Consumer(logMessages),

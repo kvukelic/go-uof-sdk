@@ -379,3 +379,11 @@ func UIDWithLang(id int, lang Lang) int {
 func (m *Message) Is(mt MessageType) bool {
 	return m.Type == mt
 }
+
+func (m *Message) IsFixtureChange() bool {
+	return m.Is(MessageTypeFixtureChange) && m.FixtureChange != nil
+}
+
+func (m *Message) IsProducersChange() bool {
+	return m.Is(MessageTypeProducersChange) && m.Producers != nil
+}

@@ -185,6 +185,7 @@ type params struct {
 	Limit              int
 	IncludeMappings    bool
 	UseReplayTimestamp bool
+	DateTime           string
 	Lang               uof.Lang
 	Producer           uof.Producer
 }

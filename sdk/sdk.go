@@ -19,10 +19,10 @@ type ErrorListenerFunc func(err error)
 type Config struct {
 	BookmakerID   string
 	Token         string
+	Producers     []queue.ProducerCfg
 	FixturesTo    time.Time
 	FixturesMax   int
 	Variants      bool
-	AliveTimeout  time.Duration
 	Recovery      []uof.ProducerChange
 	Stages        []pipe.InnerStage
 	Replay        func(*api.ReplayAPI) error
@@ -61,19 +61,19 @@ func Run(ctx context.Context, options ...Option) error {
 		pipe.Fixture(apiConn, c.Languages, c.FixturesTo, c.FixturesMax),
 		pipe.Player(apiConn, c.Languages),
 		pipe.BetStop(),
+		pipe.Recovery(apiConn),
 	}
-	if len(c.Recovery) > 0 {
-		stages = append(stages, pipe.Recovery(apiConn, c.Recovery, c.AliveTimeout))
-	}
+
 	stages = append(stages, c.Stages...)
 
 	errc := pipe.Build(
-		queue.WithReconnect(ctx, qc),
+		queue.WithProducerHandling(ctx, qc, c.Producers),
 		stages...,
 	)
 	return firstErr(errc, c.ErrorListener)
 }
 
+// listen errors
 func firstErr(errc <-chan error, errorListener ErrorListenerFunc) error {
 	var err error
 	for e := range errc {
@@ -87,9 +87,11 @@ func firstErr(errc <-chan error, errorListener ErrorListenerFunc) error {
 	return err
 }
 
+// apply configuration options
 func config(options ...Option) Config {
 	// defaults
 	c := &Config{
+		Producers: make([]queue.ProducerCfg, 0),
 		Languages: defaultLanguages,
 		Variants:  true,
 		Env:       uof.Production,
@@ -112,6 +114,46 @@ func connect(ctx context.Context, c Config) (*queue.Connection, *api.API, error)
 	}
 	return conn, stg, nil
 }
+
+// PRODUCER SUBSCRIPTION OPTIONS
+
+func Subscribe(producer uof.Producer, opts ...ProducerOption) Option {
+	prod := queue.NewProducerCfg(producer)
+	for _, o := range opts {
+		o(&prod)
+	}
+	return func(c *Config) {
+		c.Producers = append(c.Producers, prod)
+	}
+}
+
+type ProducerOption func(*queue.ProducerCfg)
+
+func RecoverFrom(timestamp int) ProducerOption {
+	return func(pc *queue.ProducerCfg) {
+		pc.SetRecoveryTimestamp(timestamp)
+	}
+}
+
+func MaxInterval(d time.Duration) ProducerOption {
+	return func(pc *queue.ProducerCfg) {
+		pc.SetMaxIntervalDuration(d)
+	}
+}
+
+func MaxDelay(d time.Duration) ProducerOption {
+	return func(pc *queue.ProducerCfg) {
+		pc.SetMaxDelayDuration(d)
+	}
+}
+
+func Timeout(d time.Duration) ProducerOption {
+	return func(pc *queue.ProducerCfg) {
+		pc.SetTimeoutDuration(d)
+	}
+}
+
+// OTHER SDK OPTIONS
 
 // Credentials for establishing connection to the uof queue and api.
 func Credentials(bookmakerID, token string) Option {
@@ -178,38 +220,22 @@ func Callback(cb func(m *uof.Message) error) Option {
 	}
 }
 
-// Recovery starts recovery for each producer
+// FixturePreload configures retrieval of live and prematch fixtures at start-up.
 //
-// It is responsibility of SDK consumer to track the last timestamp of the
-// successfully consumed message for each producer. On startup this timestamp is
-// sent here and SDK will request recovery; get all the messages after that ts.
+// Fixtures for all events which start before `to` time are fetched. The `max`
+// value sets a rough maximum of fixtures to be preloaded. A minimum set of
+// fixtures for currently running events and the first page of active scheduled
+// prematch events is always fetched.
 //
-// Ref: https://docs.betradar.com/display/BD/UOF+-+Recovery+using+API
-func Recovery(pc []uof.ProducerChange) Option {
-	return func(c *Config) {
-		c.Recovery = pc
-	}
-}
-
-// Fixtures gets live and pre-match fixtures at start-up.
-//
-// It gets fixture for all matches which starts before `to` time.
 // There is a special endpoint to get almost all fixtures before initiating
 // recovery. This endpoint is designed to significantly reduce the number of API
 // calls required during recovery.
 //
 // Ref: https://docs.betradar.com/display/BD/UOF+-+Fixtures+in+the+API
-func Fixtures(to time.Time, max int) Option {
+func FixturePreload(to time.Time, max int) Option {
 	return func(c *Config) {
 		c.FixturesTo = to
 		c.FixturesMax = max
-	}
-}
-
-// ListenErrors sets ErrorListener for all SDK errors
-func ListenErrors(listener ErrorListenerFunc) Option {
-	return func(c *Config) {
-		c.ErrorListener = listener
 	}
 }
 
@@ -220,11 +246,9 @@ func NoVariants() Option {
 	}
 }
 
-// AliveTimeout sets the duration in which the producers must send a
-// subsequent alive message; otherwise, the producer is considered to
-// be down and will initiate recovery when it becomes alive again
-func AliveTimeout(timeout time.Duration) Option {
+// ListenErrors sets ErrorListener for all SDK errors
+func ListenErrors(listener ErrorListenerFunc) Option {
 	return func(c *Config) {
-		c.AliveTimeout = timeout
+		c.ErrorListener = listener
 	}
 }

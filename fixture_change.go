@@ -46,3 +46,30 @@ func (fc *FixtureChange) Schedule() *time.Time {
 	ts := time.Unix(0, int64(*fc.StartTime*int(time.Millisecond)))
 	return &ts
 }
+
+// Struct for changes on Fixture_change API endpoint
+//
+// The End Point will return a list of xml elements with the following information:
+//  - Id of the Sport Event
+//  - Time of the change
+// Once the customer is aware that a fixture change happened, Timeline and Summary API
+// End Points can be used in order to retrieve detailed information about the change.
+// Reference: https://docs.betradar.com/display/BD/UOF+-+Fixture_change+end+point
+type Change struct {
+	EventID    int    `json:"eventID"`
+	EventURN   URN    `xml:"sport_event_id,attr" json:"eventURN"`
+	UpdateTime string `xml:"update_time,attr" json:"updateTime"`
+}
+
+func (c *Change) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type T Change
+	var overlay struct {
+		*T
+	}
+	overlay.T = (*T)(c)
+	if err := d.DecodeElement(&overlay, &start); err != nil {
+		return err
+	}
+	c.EventID = c.EventURN.EventID()
+	return nil
+}
