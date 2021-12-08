@@ -31,6 +31,8 @@ func newRecovery(api recoveryAPI) *recovery {
 	}
 }
 
+// logError sends an error by the recovery operation to the pipeline
+// if the error channel is free to receive the error.
 func (r *recovery) logError(err error) {
 	select {
 	case r.errc <- uof.E("recovery", err):
@@ -38,10 +40,12 @@ func (r *recovery) logError(err error) {
 	}
 }
 
+// noticeError sends a notice by the recovery operation to the pipeline.
 func (r *recovery) noticeError(err error) {
 	r.errc <- uof.Notice("recovery", err)
 }
 
+// cancelAllRecoveries cancels all ongoing recoveries.
 func (r *recovery) cancelAllRecoveries() {
 	for _, c := range r.recoveryCancel {
 		if c != nil {
@@ -50,6 +54,7 @@ func (r *recovery) cancelAllRecoveries() {
 	}
 }
 
+// cancelRecovery cancels an ongoing recovery for a producer if there is one.
 func (r *recovery) cancelRecovery(producer uof.Producer) {
 	c, ok := r.recoveryCancel[producer]
 	if ok && c != nil {
@@ -57,6 +62,10 @@ func (r *recovery) cancelRecovery(producer uof.Producer) {
 	}
 }
 
+// enterRecovery handles requesting a recovery for a producer.
+//
+// Any previous ongoing recovery for the producer is cancelled. If a request
+// fails, it will be repeated after a minute, until a request succeeds.
 func (r *recovery) enterRecovery(producer uof.Producer, timestamp int, requestID int) {
 	r.cancelRecovery(producer)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -81,6 +90,9 @@ func (r *recovery) enterRecovery(producer uof.Producer, timestamp int, requestID
 	}()
 }
 
+// producersStatusChange processes producers change messages. It updates the
+// internally kept states of the producers, and enters or cancels recoveries
+// as necessary.
 func (r *recovery) producersStatusChange(producers uof.ProducersChange) {
 	for _, pc := range producers {
 		if r.producers[pc.Producer] != pc.Status {
@@ -94,6 +106,10 @@ func (r *recovery) producersStatusChange(producers uof.ProducersChange) {
 	}
 }
 
+// loop of the Recovery stage.
+//
+// Reacts to changes in producer state, as received via producers change
+// messages, to handle recovery requests on the API.
 func (r *recovery) loop(in <-chan *uof.Message, out chan<- *uof.Message, errc chan<- error) *sync.WaitGroup {
 	r.errc = errc
 	for m := range in {
@@ -106,6 +122,7 @@ func (r *recovery) loop(in <-chan *uof.Message, out chan<- *uof.Message, errc ch
 	return r.subProcs
 }
 
+// Recovery inner stage for the SDK pipeline
 func Recovery(api recoveryAPI) InnerStage {
 	r := newRecovery(api)
 	return StageWithSubProcesses(r.loop)

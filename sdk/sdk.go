@@ -19,7 +19,7 @@ type ErrorListenerFunc func(err error)
 type Config struct {
 	BookmakerID   string
 	Token         string
-	Producers     []queue.ProducerCfg
+	Producers     []queue.ProducerConfig
 	FixturesTo    time.Time
 	FixturesMax   int
 	Variants      bool
@@ -91,7 +91,7 @@ func firstErr(errc <-chan error, errorListener ErrorListenerFunc) error {
 func config(options ...Option) Config {
 	// defaults
 	c := &Config{
-		Producers: make([]queue.ProducerCfg, 0),
+		Producers: make([]queue.ProducerConfig, 0),
 		Languages: defaultLanguages,
 		Variants:  true,
 		Env:       uof.Production,
@@ -117,8 +117,17 @@ func connect(ctx context.Context, c Config) (*queue.Connection, *api.API, error)
 
 // PRODUCER SUBSCRIPTION OPTIONS
 
+// Subscribe registers a producer for tracking and handling of its state and
+// state changes. When a producer is registered, it will appear in any
+// ProducersChange messages inserted into the stream of messages in the
+// pipeline, which will also enable any inner stages with state-dependent
+// behaviour (e.g. recovery stage) to fully function in regards to that
+// producer.
+//
+// The function may also receive configuration options that define various
+// parameters in the producer's state handling.
 func Subscribe(producer uof.Producer, opts ...ProducerOption) Option {
-	prod := queue.NewProducerCfg(producer)
+	prod := queue.NewProducerConfig(producer)
 	for _, o := range opts {
 		o(&prod)
 	}
@@ -127,28 +136,55 @@ func Subscribe(producer uof.Producer, opts ...ProducerOption) Option {
 	}
 }
 
-type ProducerOption func(*queue.ProducerCfg)
+type ProducerOption func(*queue.ProducerConfig)
 
+// RecoverFrom sets the beginning of the recovery window for the initial
+// recovery of the producer. As with any recovery, if the set window
+// exceeds recovery window duration limit for the producer, full recovery
+// of all events with active offer will be requested.
+//
+// If not used, the beginning of the recovery window will be set to the
+// moment of registering the producer via Subscribe.
 func RecoverFrom(timestamp int) ProducerOption {
-	return func(pc *queue.ProducerCfg) {
+	return func(pc *queue.ProducerConfig) {
 		pc.SetRecoveryTimestamp(timestamp)
 	}
 }
 
+// MaxInterval sets the maximum allowed amount of time between timestamps of
+// two subsequent alive messages for the producer. Exceeding this threshold
+// while the producer is active or in recovery will result in it being
+// considered down.
+//
+// If not used, or if the parameter is set to a negative value, no checks on
+// the interval between subsequent alive message timestamps will be made.
 func MaxInterval(d time.Duration) ProducerOption {
-	return func(pc *queue.ProducerCfg) {
+	return func(pc *queue.ProducerConfig) {
 		pc.SetMaxIntervalDuration(d)
 	}
 }
 
+// MaxDelay sets the maximum allowed amount of delay between a timestamp of an
+// alive message, as reported from the source server, and the time at which SDK
+// received the message. Exceeding this threshold while the producer is active
+// will result in it being considered down.
+//
+// If not used, or if the parameter is set to a negative value, no checks on
+// the delay of alive messages will be made.
 func MaxDelay(d time.Duration) ProducerOption {
-	return func(pc *queue.ProducerCfg) {
+	return func(pc *queue.ProducerConfig) {
 		pc.SetMaxDelayDuration(d)
 	}
 }
 
+// Timeout sets the maximum allowed amount of time between receiving two alive
+// messages for the producer. Exceeding this threshold while the producer is
+// active will result in it being considered down.
+//
+// If not used, or if the parameter is set to a non-positive value, no checks
+// on the duration between receiving alive messages will be made.
 func Timeout(d time.Duration) ProducerOption {
-	return func(pc *queue.ProducerCfg) {
+	return func(pc *queue.ProducerConfig) {
 		pc.SetTimeoutDuration(d)
 	}
 }

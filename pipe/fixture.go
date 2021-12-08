@@ -40,6 +40,17 @@ func newFixture(api fixtureAPI, languages []uof.Lang, preloadTo time.Time, prelo
 	}
 }
 
+// loop of the Fixture stage. Runs in two phases.
+//
+// First phase:
+//  - Feed processing while preloading fixtures from the API
+//  - Incoming fixture changes from feed are cached only
+//  - When done, trigger fetch for all cached fixtures before second phase
+// Second phase:
+//  - Feed processing while reacting to producers in recovery
+//  - Incoming fixture changes trigger individual fixture fetch from the API
+//  - Producer recovery completion triggers request for possibly missed fixture changes
+//  - Each possibly missed change also triggers fixture fetch from the API
 func (f *fixture) loop(in <-chan *uof.Message, out chan<- *uof.Message, errc chan<- error) *sync.WaitGroup {
 	f.out, f.errc = out, errc
 	urns := f.loopWithPreload(in)
@@ -50,6 +61,9 @@ func (f *fixture) loop(in <-chan *uof.Message, out chan<- *uof.Message, errc cha
 	return f.subProcs
 }
 
+// loopWithPreload implements the first phase of the Fixture stage loop.
+// It does the preload of fixtures from schedule API endpoints while caching
+// and returning URNs of any fixture changes received in the meantime.
 func (f *fixture) loopWithPreload(in <-chan *uof.Message) []uof.URN {
 	done := make(chan struct{})
 
@@ -80,6 +94,15 @@ func (f *fixture) loopWithPreload(in <-chan *uof.Message) []uof.URN {
 	}
 }
 
+// loopWithRecovery implements the second phase of the Fixture stage loop.
+// It triggers fixture fetch for each fixture change received, while also
+// reacting to completed producer recoveries by recovering potentially missed
+// fixture changes.
+//
+// One recovery of fixture changes is also triggered upon first entering this
+// loop. This is to account for the fact that the API caches schedule endpoint
+// responses, and to cover for any changes that might have happened after the
+// last caching.
 func (f *fixture) loopWithRecovery(in <-chan *uof.Message) {
 	recover := func() {
 		f.subProcs.Add(1)
@@ -104,6 +127,8 @@ func (f *fixture) loopWithRecovery(in <-chan *uof.Message) {
 	}
 }
 
+// preloadFixtures requests scheduled fixtures and inserts fixture messages
+// into the pipeline
 func (f *fixture) preloadFixtures() {
 	if f.preloadTo.IsZero() {
 		return
@@ -131,6 +156,8 @@ func (f *fixture) preloadFixtures() {
 	f.recoveryTsp.set(earliest(tsps))
 }
 
+// recoverFixtures requests potentially missed fixture changes and triggers
+// fixture fetch for each of them
 func (f *fixture) recoverFixtures() {
 	from := f.recoveryTsp.get()
 	if from.IsZero() {
@@ -164,6 +191,8 @@ func (f *fixture) recoverFixtures() {
 	}
 }
 
+// getFixture requests an individual fixture from the API and inserts fixture
+// messages into the pipeline
 func (f *fixture) getFixture(eventURN uof.URN, receivedAt int, forceUpdate bool) {
 	f.subProcs.Add(len(f.languages))
 	for _, lang := range f.languages {
@@ -189,6 +218,7 @@ func (f *fixture) getFixture(eventURN uof.URN, receivedAt int, forceUpdate bool)
 	}
 }
 
+// noneRecovering returns true if no producer is in recovery state
 func (f *fixture) noneRecovering() bool {
 	for _, s := range f.producers {
 		if s == uof.ProducerStatusInRecovery {
@@ -198,6 +228,11 @@ func (f *fixture) noneRecovering() bool {
 	return true
 }
 
+// updateRecoveryTsp moves the fixture change recovery timestamp due to a
+// producer recovery. If no other producer is recovering, the timestamp is set
+// to the start of this producer's recovery window. If there are other
+// producers in recovery, the timestamp is moved to the start of this
+// producer's recovery window only if it is earlier than the current timestamp.
 func (f *fixture) updateRecoveryTsp(timestamp int) {
 	noRec := f.noneRecovering()
 	tsp := time.Unix(0, int64(timestamp)*1e6)
@@ -206,6 +241,9 @@ func (f *fixture) updateRecoveryTsp(timestamp int) {
 	})
 }
 
+// producersStatusChange processes producers change messages. It does updates
+// on the state of the producers and the recovery timestamp, and returns true
+// when a recovery may trigger due to a completed producer recovery.
 func (f *fixture) producersStatusChange(producers uof.ProducersChange, preload bool) bool {
 	shouldRecover := false
 	for _, pc := range producers {
@@ -222,6 +260,7 @@ func (f *fixture) producersStatusChange(producers uof.ProducersChange, preload b
 	return shouldRecover
 }
 
+// Fixture inner stage for the SDK pipeline
 func Fixture(api fixtureAPI, languages []uof.Lang, preloadTo time.Time, preloadMax int) InnerStage {
 	f := newFixture(api, languages, preloadTo, preloadMax)
 	return StageWithSubProcesses(f.loop)
@@ -273,17 +312,20 @@ func pastLimit(t time.Time, d time.Duration) time.Time {
 	return t
 }
 
+// syncTime is an auxiliary structure acting as a concurrent-safe time instant
 type syncTime struct {
 	time time.Time
 	sync.RWMutex
 }
 
+// set sets this time instant to a desired instant
 func (st *syncTime) set(t time.Time) {
 	st.Lock()
 	defer st.Unlock()
 	st.time = t
 }
 
+// setIf sets this time instant only if the provided condition is met
 func (st *syncTime) setIf(t time.Time, fn func(time.Time) bool) {
 	st.Lock()
 	defer st.Unlock()
@@ -292,6 +334,8 @@ func (st *syncTime) setIf(t time.Time, fn func(time.Time) bool) {
 	}
 }
 
+// shift checks if this current instant is within the interval between instants
+// 'from' and 'to', in which case it is set to the time instant 'to'
 func (st *syncTime) shift(from time.Time, to time.Time) {
 	st.Lock()
 	defer st.Unlock()
@@ -301,6 +345,7 @@ func (st *syncTime) shift(from time.Time, to time.Time) {
 	st.time = to
 }
 
+// get return this current time instant
 func (st *syncTime) get() time.Time {
 	st.RLock()
 	defer st.RUnlock()

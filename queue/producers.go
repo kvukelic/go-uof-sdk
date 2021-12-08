@@ -8,7 +8,12 @@ import (
 	"github.com/minus5/go-uof-sdk"
 )
 
-func WithProducerHandling(ctx context.Context, conn *Connection, producers []ProducerCfg) func() (<-chan *uof.Message, <-chan error) {
+// WithProducerHandling is a source stage implementation that wraps around
+// WithReconnect and its functionality, and implements producer state handling
+// logic on top of it. Producers change messages are inserted into the stream
+// of messages in the output channel, allowing any inner stage to consider
+// producer states in its behaviour, without having to implement its own logic.
+func WithProducerHandling(ctx context.Context, conn *Connection, producers []ProducerConfig) func() (<-chan *uof.Message, <-chan error) {
 	return func() (<-chan *uof.Message, <-chan error) {
 		out := make(chan *uof.Message)
 		errc := make(chan error)
@@ -119,7 +124,7 @@ func WithProducerHandling(ctx context.Context, conn *Connection, producers []Pro
 
 // PRODUCER CONFIGURATION
 
-type ProducerCfg struct {
+type ProducerConfig struct {
 	producer    uof.Producer
 	timestamp   int
 	maxInterval time.Duration
@@ -127,8 +132,8 @@ type ProducerCfg struct {
 	timeout     time.Duration
 }
 
-func NewProducerCfg(producer uof.Producer) ProducerCfg {
-	return ProducerCfg{
+func NewProducerConfig(producer uof.Producer) ProducerConfig {
+	return ProducerConfig{
 		producer:    producer,
 		timestamp:   uof.CurrentTimestamp(),
 		maxInterval: -1,
@@ -137,24 +142,26 @@ func NewProducerCfg(producer uof.Producer) ProducerCfg {
 	}
 }
 
-func (cfg *ProducerCfg) SetRecoveryTimestamp(timestamp int) {
+func (cfg *ProducerConfig) SetRecoveryTimestamp(timestamp int) {
 	cfg.timestamp = timestamp
 }
 
-func (cfg *ProducerCfg) SetMaxIntervalDuration(duration time.Duration) {
+func (cfg *ProducerConfig) SetMaxIntervalDuration(duration time.Duration) {
 	cfg.maxInterval = duration
 }
 
-func (cfg *ProducerCfg) SetMaxDelayDuration(duration time.Duration) {
+func (cfg *ProducerConfig) SetMaxDelayDuration(duration time.Duration) {
 	cfg.maxDelay = duration
 }
 
-func (cfg *ProducerCfg) SetTimeoutDuration(duration time.Duration) {
+func (cfg *ProducerConfig) SetTimeoutDuration(duration time.Duration) {
 	cfg.timeout = duration
 }
 
 // PRODUCER STATE
 
+// producer represents a set of data that describes either the current state of
+// a producer or conditions for that producer to undergo state trnasitions.
 type producer struct {
 	uofProducer uof.Producer
 
@@ -171,7 +178,9 @@ type producer struct {
 	recoveryID        int
 }
 
-func initProducers(pcs []ProducerCfg, timeouts chan uof.Producer) []*producer {
+// initProducers sets up a set of producers per provided configuration. It also
+// receives a channel to which alive message timeout signals will be sent.
+func initProducers(pcs []ProducerConfig, timeouts chan uof.Producer) []*producer {
 	producers := make([]*producer, 0)
 	for _, pc := range pcs {
 		cb := func() {
@@ -375,12 +384,15 @@ func (p *producer) timeout() error {
 
 // PRODUCER TIMEOUT TIMER
 
+// producerTimeout handles timeout logic for timing out alive message awaiting
 type producerTimeout struct {
 	stop     chan struct{}
 	duration time.Duration
 	callback func()
 }
 
+// newTimeout sets up a new timeout handler with desired timeout duration and
+// callback function executed upon reaching timeout
 func newTimeout(dur time.Duration, cb func()) producerTimeout {
 	return producerTimeout{
 		duration: dur,
@@ -388,6 +400,7 @@ func newTimeout(dur time.Duration, cb func()) producerTimeout {
 	}
 }
 
+// restart stops a currently ongoing timeout timer and starts a new one
 func (t *producerTimeout) restart() {
 	t.cancel()
 	if t.duration > 0 {
@@ -404,6 +417,7 @@ func (t *producerTimeout) restart() {
 	}
 }
 
+// cancel stops a currently ongoing timeout timer, if there is one
 func (t *producerTimeout) cancel() {
 	select {
 	case t.stop <- struct{}{}:

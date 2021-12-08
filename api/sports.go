@@ -73,10 +73,19 @@ func (a *API) FixtureChanges(lang uof.Lang, from time.Time) ([]uof.Change, time.
 	return fcr.Changes, fcr.GeneratedAt, a.getAs(&fcr, fixtureChanges, &params{Lang: lang, DateTime: dateTime})
 }
 
-// FixtureSchedule gets all fixtures from schedule up to the time instant 'to'.
-// Due to pagination of the endpoint, the fixtures are returned asynchronously
-// via a channel. A separate channel, that receives and buffers the earliest
-// timestamp of all received responses, is also returned.
+// FixtureSchedule gets fixtures from schedule endpoints.
+//
+// First, it fetches all currently live events from the live/schedule endpoint.
+// Then, it begins fetching upcoming events with prematch offer from the
+// paginated pre/schedule enpoint. It keeps requesting batches of fixtures for
+// these events until it reaches events whose scheduled start time exceeds the
+// time instant 'to', or until the maximum fixture count 'max' has been
+// reached. It will always, at minimum, attempt to get the schedule of
+// currently live events and the first page of upcoming prematch events.
+//
+// Due to the pagination of the latter endpoint, the fixtures are returned
+// asynchronously via a channel. A separate channel, that receives and buffers
+// only the earliest timestamp of all received responses, is also returned.
 func (a *API) FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.Fixture, <-chan time.Time, <-chan error) {
 	errc := make(chan error, 1)
 	tsp := make(chan time.Time, 1)
