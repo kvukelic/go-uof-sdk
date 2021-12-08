@@ -12,7 +12,7 @@ import (
 type fixtureAPIMock struct {
 	preloadTo time.Time
 	eventURN  uof.URN
-	//requests map[int]struct{}
+	changeURN uof.URN
 	sync.Mutex
 }
 
@@ -24,7 +24,10 @@ func (m *fixtureAPIMock) Fixture(lang uof.Lang, eventURN uof.URN) (*uof.Fixture,
 }
 
 func (m *fixtureAPIMock) FixtureChanges(lang uof.Lang, from time.Time) ([]uof.Change, time.Time, error) {
-	return []uof.Change{}, time.Now(), nil
+	return []uof.Change{{
+		EventID:  m.changeURN.ID(),
+		EventURN: m.changeURN,
+	}}, time.Now(), nil
 }
 
 func (m *fixtureAPIMock) FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.Fixture, <-chan time.Time, <-chan error) {
@@ -41,31 +44,56 @@ func (m *fixtureAPIMock) FixtureSchedule(lang uof.Lang, to time.Time, max int) (
 }
 
 func TestFixturePipe(t *testing.T) {
-	a := &fixtureAPIMock{}
+	a := &fixtureAPIMock{changeURN: "sr:match:1235"}
 	preloadTo := time.Now().Add(time.Hour)
-	f := Fixture(a, []uof.Lang{uof.LangEN, uof.LangDE}, preloadTo, 0)
+	langs := []uof.Lang{uof.LangEN, uof.LangDE}
+	f := Fixture(a, langs, preloadTo, 0)
 	assert.NotNil(t, f)
 
+	// run the stage loop (& start preload)
 	in := make(chan *uof.Message)
+	defer close(in)
 	out, _ := f(in)
 
-	// this type of message is passing through
+	// connection message -> pass through
 	m := uof.NewConnnectionMessage(uof.ConnectionStatusUp)
 	in <- m
 	om := <-out
 	assert.Equal(t, m, om)
 
+	// fixture change -> fixture fetch
 	m = fixtureChangeMsg(t)
 	in <- m
 	om = <-out
 	assert.Equal(t, m, om)
-
-	close(in)
-	for range out {
+	// fixture message will be inserted for each language
+	for range langs {
+		fm := <-out
+		assert.Equal(t, m.FixtureChange.EventURN, fm.Fixture.URN)
 	}
-
+	assert.Equal(t, m.FixtureChange.EventURN, a.eventURN)
+	// fetched fixtures mean preload phase is done at this point
 	assert.Equal(t, preloadTo, a.preloadTo)
-	assert.Equal(t, a.eventURN, m.FixtureChange.EventURN)
+
+	// producer in recovery -> internal updates
+	tsp := uof.CurrentTimestamp() - 10000
+	m = producersChangeMsg(uof.ProducerStatusInRecovery, tsp)
+	in <- m
+	om = <-out
+	assert.Equal(t, m, om)
+
+	// producer active -> recover fixture changes
+	tsp = uof.CurrentTimestamp() - 5000
+	m = producersChangeMsg(uof.ProducerStatusActive, tsp)
+	in <- m
+	om = <-out
+	assert.Equal(t, m, om)
+	// fixture message will be inserted for each language
+	for range langs {
+		fm := <-out
+		assert.Equal(t, a.changeURN, fm.Fixture.URN)
+	}
+	assert.Equal(t, a.changeURN, a.eventURN)
 }
 
 func fixtureChangeMsg(t *testing.T) *uof.Message {
@@ -73,4 +101,13 @@ func fixtureChangeMsg(t *testing.T) *uof.Message {
 	m, err := uof.NewQueueMessage("hi.pre.-.fixture_change.1.sr:match.1234.-", buf)
 	assert.NoError(t, err)
 	return m
+}
+
+func producersChangeMsg(status uof.ProducerStatus, tsp int) *uof.Message {
+	pc := uof.ProducersChange{{
+		Producer:          uof.ProducerLiveOdds,
+		Status:            status,
+		RecoveryTimestamp: tsp,
+	}}
+	return uof.NewProducersChangeMessage(pc)
 }
