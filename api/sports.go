@@ -30,70 +30,19 @@ func (a *API) MarketVariant(lang uof.Lang, marketID int, variant string) (uof.Ma
 	return mr.Markets, err
 }
 
-// Fixture lists the fixture for a specified sport event
-func (a *API) Fixture(lang uof.Lang, eventURN uof.URN) (uof.FixtureRsp, error) {
-	var fr fixtureRsp
-	err := a.getAs(&fr, pathFixture, &params{Lang: lang, EventURN: eventURN})
-	return uof.FixtureRsp{Fixture: fr.Fixture, GeneratedAt: fr.GeneratedAt}, err
-}
-
 func (a *API) Player(lang uof.Lang, playerID int) (uof.PlayerProfile, error) {
 	var pr playerRsp
 	err := a.getAs(&pr, pathPlayer, &params{Lang: lang, PlayerID: playerID})
 	return uof.PlayerProfile{Player: pr.Player, GeneratedAt: pr.GeneratedAt}, err
 }
 
-type marketsRsp struct {
-	Markets uof.MarketDescriptions `xml:"market,omitempty" json:"markets,omitempty"`
-	// unused
-	// ResponseCode string   `xml:"response_code,attr,omitempty" json:"responseCode,omitempty"`
-	// Location     string   `xml:"location,attr,omitempty" json:"location,omitempty"`
-}
-
-type playerRsp struct {
-	Player      uof.Player `xml:"player" json:"player"`
-	GeneratedAt time.Time  `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
-}
-
-type fixtureRsp struct {
-	Fixture     uof.Fixture `xml:"fixture" json:"fixture"`
-	GeneratedAt time.Time   `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
-}
-
-func (fr *fixtureRsp) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	if start.Name.Local == "tournament_info" {
-		for _, attr := range start.Attr {
-			if attr.Name.Local == "generated_at" {
-				tsp, err := time.Parse(time.RFC3339, attr.Value)
-				if err != nil {
-					return err
-				}
-				fr.GeneratedAt = tsp
-				break
-			}
-		}
-		return d.DecodeElement(&fr.Fixture, &start)
-	} else {
-		var overlay struct {
-			Fixture     uof.Fixture `xml:"fixture"`
-			GeneratedAt time.Time   `xml:"generated_at,attr,omitempty"`
-		}
-		defer func() {
-			fr.Fixture = overlay.Fixture
-			fr.GeneratedAt = overlay.GeneratedAt
-		}()
-		return d.DecodeElement(&overlay, &start)
-	}
-}
-
-type fixtureChangesRsp struct {
-	Changes     []uof.Change `xml:"fixture_change,omitempty" json:"fixtureChange,omitempty"`
-	GeneratedAt time.Time    `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
-}
-
-type scheduleRsp struct {
-	Fixtures    []uof.Fixture `xml:"sport_event,omitempty" json:"sportEvent,omitempty"`
-	GeneratedAt time.Time     `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
+// Fixture lists the fixture for a specified sport event
+func (a *API) Fixture(lang uof.Lang, eventURN uof.URN) (uof.FixtureRsp, error) {
+	var fr fixtureRsp
+	err := a.getAs(&fr, pathFixture, &params{Lang: lang, EventURN: eventURN})
+	fr.Fixture.ID = eventURN.EventID()
+	fr.Fixture.URN = eventURN
+	return uof.FixtureRsp{Fixture: fr.Fixture, GeneratedAt: fr.GeneratedAt}, err
 }
 
 // FixtureChanges retrieves a list of fixture changes starting from the time
@@ -167,4 +116,53 @@ func laterNonZero(a, b time.Time) time.Time {
 		return b
 	}
 	return a
+}
+
+type marketsRsp struct {
+	Markets uof.MarketDescriptions `xml:"market,omitempty" json:"markets,omitempty"`
+	// unused
+	// ResponseCode string   `xml:"response_code,attr,omitempty" json:"responseCode,omitempty"`
+	// Location     string   `xml:"location,attr,omitempty" json:"location,omitempty"`
+}
+
+type playerRsp struct {
+	Player      uof.Player `xml:"player" json:"player"`
+	GeneratedAt time.Time  `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
+}
+
+type fixtureRsp struct {
+	Fixture     uof.Fixture `xml:"fixture" json:"fixture"`
+	GeneratedAt time.Time   `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
+}
+
+func (fr *fixtureRsp) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	var err error
+	if start.Name.Local == "tournament_info" {
+		err = d.DecodeElement(&fr.Fixture, &start)
+		if err == nil {
+			for _, attr := range start.Attr {
+				if attr.Name.Local == "generated_at" {
+					fr.GeneratedAt, err = time.Parse(time.RFC3339Nano, attr.Value)
+					break
+				}
+			}
+		}
+	} else {
+		type T fixtureRsp
+		var overlay T
+		err = d.DecodeElement(&overlay, &start)
+		fr.Fixture = overlay.Fixture
+		fr.GeneratedAt = overlay.GeneratedAt
+	}
+	return err
+}
+
+type fixtureChangesRsp struct {
+	Changes     []uof.Change `xml:"fixture_change,omitempty" json:"fixtureChange,omitempty"`
+	GeneratedAt time.Time    `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
+}
+
+type scheduleRsp struct {
+	Fixtures    []uof.Fixture `xml:"sport_event,omitempty" json:"sportEvent,omitempty"`
+	GeneratedAt time.Time     `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
 }
