@@ -1,6 +1,7 @@
 package pipe
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 type outrights struct {
 	api        fixtureAPI
 	em         *expireMap
-	eventTypes []uof.URNEventType
+	namespaces []string
 	languages  []uof.Lang
 	out        chan<- *uof.Message
 	errc       chan<- error
@@ -18,11 +19,11 @@ type outrights struct {
 	rateLimit  chan struct{}
 }
 
-func Outrights(api fixtureAPI, languages []uof.Lang, eventTypes []uof.URNEventType) InnerStage {
+func Outrights(api fixtureAPI, languages []uof.Lang, namespaces []string) InnerStage {
 	o := outrights{
 		api:        api,
 		em:         newExpireMap(time.Hour),
-		eventTypes: eventTypes,
+		namespaces: namespaces,
 		languages:  languages,
 		subProcs:   &sync.WaitGroup{},
 		rateLimit:  make(chan struct{}, ConcurentAPICallsLimit),
@@ -42,9 +43,8 @@ func (o *outrights) loop(in <-chan *uof.Message, out chan<- *uof.Message, errc c
 }
 
 func (o *outrights) isOutright(urn uof.URN) bool {
-	typ := urn.EventURNType()
-	for _, t := range o.eventTypes {
-		if typ == t {
+	for _, n := range o.namespaces {
+		if strings.HasPrefix(urn.String(), n) {
 			return true
 		}
 	}

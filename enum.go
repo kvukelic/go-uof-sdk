@@ -133,12 +133,12 @@ func EventURN(prefix URNPrefixType, typ URNEventType, eventID int) URN {
 	return URN(fmt.Sprintf("%s:%s:%d", prefix, typ, eventID))
 }
 
-func EventNamespace(prefix URNPrefixType, typ URNEventType) string {
-	return fmt.Sprintf("%s:%s:", prefix, typ)
-}
-
 func EntityURN(prefix URNPrefixType, typ URNEntityType, eventID int) URN {
 	return URN(fmt.Sprintf("%s:%s:%d", prefix, typ, eventID))
+}
+
+func EventNamespace(prefix URNPrefixType, typ URNEventType) string {
+	return fmt.Sprintf("%s:%s:", prefix, typ)
 }
 
 func EntityNamespace(prefix URNPrefixType, typ URNEntityType) string {
@@ -146,21 +146,20 @@ func EntityNamespace(prefix URNPrefixType, typ URNEntityType) string {
 }
 
 type URNPrefixType string
+type URNEventType string
+type URNEntityType string
 
 const (
-	PrefixSR      URNPrefixType = "sr"
-	PrefixVF      URNPrefixType = "vf"
-	PrefixVBL     URNPrefixType = "vbl"
-	PrefixVTO     URNPrefixType = "vto"
-	PrefixVDR     URNPrefixType = "vdr"
-	PrefixVHC     URNPrefixType = "vhc"
-	PrefixVTI     URNPrefixType = "vti"
-	PrefixWNS     URNPrefixType = "wns"
-	PrefixTest    URNPrefixType = "test"
-	PrefixUnknown URNPrefixType = "?"
+	PrefixSR   URNPrefixType = "sr"
+	PrefixVF   URNPrefixType = "vf"
+	PrefixVBL  URNPrefixType = "vbl"
+	PrefixVTO  URNPrefixType = "vto"
+	PrefixVDR  URNPrefixType = "vdr"
+	PrefixVHC  URNPrefixType = "vhc"
+	PrefixVTI  URNPrefixType = "vti"
+	PrefixWNS  URNPrefixType = "wns"
+	PrefixTest URNPrefixType = "test"
 )
-
-type URNEventType string
 
 const (
 	EventMatch            URNEventType = "match"
@@ -169,43 +168,27 @@ const (
 	EventTournament       URNEventType = "tournament"
 	EventSimpleTournament URNEventType = "simple_tournament"
 	EventDraw             URNEventType = "draw"
-	EventUnknown          URNEventType = "?"
 )
 
-type URNEntityType string
-
 const (
-	EntityPlayer  URNEntityType = "player"
-	EntityUnknown URNEntityType = "?"
+	EntityPlayer URNEntityType = "player"
 	// TODO: add others
 )
 
-func (u URN) EventURNType() URNEventType {
-	switch u.LastNID() {
-	case "match":
-		return EventMatch
-	case "stage":
-		return EventStage
-	case "season":
-		return EventSeason
-	case "tournament":
-		return EventTournament
-	case "simple_tournament":
-		return EventSimpleTournament
-	case "draw":
-		return EventDraw
-	default:
-		return EventUnknown
+func (u URN) PrefixType() URNPrefixType {
+	parts := strings.Split(u.String(), ":")
+	if len(parts) > 0 {
+		return URNPrefixType(parts[0])
 	}
+	return URNPrefixType("")
 }
 
-func (u URN) EntityURNType() URNEntityType {
-	switch u.LastNID() {
-	case "player":
-		return EntityPlayer
-	default:
-		return EntityUnknown
-	}
+func (u URN) EventType() URNEventType {
+	return URNEventType(u.LastNID())
+}
+
+func (u URN) EntityType() URNEntityType {
+	return URNEntityType(u.LastNID())
 }
 
 // EventID tries to generate unique id for all types of events. Most comon are

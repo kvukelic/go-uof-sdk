@@ -23,7 +23,7 @@ type Config struct {
 	FixturesTo    time.Time
 	FixturesMax   int
 	Variants      bool
-	Recovery      []uof.ProducerChange
+	Outrights     []string
 	Stages        []pipe.InnerStage
 	Replay        func(*api.ReplayAPI) error
 	Env           uof.Environment
@@ -64,6 +64,10 @@ func Run(ctx context.Context, options ...Option) error {
 		pipe.Recovery(apiConn),
 	}
 
+	if len(c.Outrights) > 0 {
+		stages = append(stages, pipe.Outrights(apiConn, c.Languages, c.Outrights))
+	}
+
 	stages = append(stages, c.Stages...)
 
 	errc := pipe.Build(
@@ -92,8 +96,9 @@ func config(options ...Option) Config {
 	// defaults
 	c := &Config{
 		Producers: make([]queue.ProducerConfig, 0),
-		Languages: defaultLanguages,
 		Variants:  true,
+		Outrights: make([]string, 0),
+		Languages: defaultLanguages,
 		Env:       uof.Production,
 	}
 	for _, o := range options {
@@ -286,5 +291,19 @@ func NoVariants() Option {
 func ListenErrors(listener ErrorListenerFunc) Option {
 	return func(c *Config) {
 		c.ErrorListener = listener
+	}
+}
+
+// Outrights defines event types that will be processed in the Outrights stage of
+// the pipeline.
+func Outrights(evPrefixes []uof.URNPrefixType, evTypes []uof.URNEventType) Option {
+	return func(c *Config) {
+		namespaces := make([]string, 0)
+		for _, p := range evPrefixes {
+			for _, t := range evTypes {
+				namespaces = append(namespaces, uof.EventNamespace(p, t))
+			}
+		}
+		c.Outrights = namespaces
 	}
 }
