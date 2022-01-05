@@ -15,6 +15,8 @@ const (
 	ProducerPrematch Producer = 3
 )
 
+const InvalidProducerName = "?"
+
 var producers = []struct {
 	id             Producer
 	name           string
@@ -47,7 +49,7 @@ func (p Producer) Name() string {
 			return d.name
 		}
 	}
-	return InvalidName
+	return InvalidProducerName
 }
 
 func (p Producer) Description() string {
@@ -56,7 +58,7 @@ func (p Producer) Description() string {
 			return d.description
 		}
 	}
-	return InvalidName
+	return InvalidProducerName
 }
 
 func (p Producer) Code() string {
@@ -65,7 +67,7 @@ func (p Producer) Code() string {
 			return d.code
 		}
 	}
-	return InvalidName
+	return InvalidProducerName
 }
 
 // RecoveryWindow in milliseconds
@@ -84,13 +86,9 @@ func (p Producer) Prematch() bool {
 	return p == 3
 }
 
-const (
-	InvalidName = "?"
-	srMatch     = "sr:match:"
-	srPlayer    = "sr:player:"
-)
-
 type URN string
+
+const NoURN = URN("")
 
 func (u URN) ID() int {
 	if u == "" {
@@ -115,69 +113,100 @@ func (u URN) LastNID() string {
 	return p[1]
 }
 
-/*
-const (
-	URNTypeMatch int8 = iota
-	URNTypeStage
-	URNTypeTournament
-	URNTypeSimpleTournament
-	URNTypeSeason
-	URNTypeDraw
-	URNTypeLottery
-	URNTypePlayer
-	URNTypeUnknown = int8(-1)
-)
-func (u URN) Type() int8 {
-	if u == "" {
-		return URNTypeUnknown
-	}
-	p := strings.Split(string(u), ":")
-	if len(p) != 3 {
-		return URNTypeUnknown
-	}
-	switch p[1] {
-	case "match":
-		return URNTypeMatch
-	case "stage":
-		return URNTypeStage
-	case "tournament":
-		return URNTypeTournament
-	case "simple_tournament":
-		return URNTypeSimpleTournament
-	case "season":
-		return URNTypeSeason
-	case "draw":
-		return URNTypeDraw
-	case "lottery":
-		return URNTypeLottery
-	case "player":
-		return URNTypePlayer
-	}
-	return URNTypeUnknown
+func (u URN) String() string {
+	return string(u)
 }
-*/
 
 func (u URN) Empty() bool {
 	return string(u) == ""
 }
 
-func NewEventURN(eventID int) URN {
-	return URN(fmt.Sprintf("%s%d", srMatch, eventID))
-}
-
-func (u URN) String() string {
-	return string(u)
-}
-
 func (u *URN) Parse(s string) {
 	r := URN(s)
 	if id, err := strconv.Atoi(s); err == nil {
-		r = NewEventURN(id)
+		r = EventURN(PrefixSR, EventMatch, id)
 	}
 	*u = r
 }
 
-const NoURN = URN("")
+func EventURN(prefix URNPrefixType, typ URNEventType, eventID int) URN {
+	return URN(fmt.Sprintf("%s:%s:%d", prefix, typ, eventID))
+}
+
+func EventNamespace(prefix URNPrefixType, typ URNEventType) string {
+	return fmt.Sprintf("%s:%s:", prefix, typ)
+}
+
+func EntityURN(prefix URNPrefixType, typ URNEntityType, eventID int) URN {
+	return URN(fmt.Sprintf("%s:%s:%d", prefix, typ, eventID))
+}
+
+func EntityNamespace(prefix URNPrefixType, typ URNEntityType) string {
+	return fmt.Sprintf("%s:%s:", prefix, typ)
+}
+
+type URNPrefixType string
+
+const (
+	PrefixSR      URNPrefixType = "sr"
+	PrefixVF      URNPrefixType = "vf"
+	PrefixVBL     URNPrefixType = "vbl"
+	PrefixVTO     URNPrefixType = "vto"
+	PrefixVDR     URNPrefixType = "vdr"
+	PrefixVHC     URNPrefixType = "vhc"
+	PrefixVTI     URNPrefixType = "vti"
+	PrefixWNS     URNPrefixType = "wns"
+	PrefixTest    URNPrefixType = "test"
+	PrefixUnknown URNPrefixType = "?"
+)
+
+type URNEventType string
+
+const (
+	EventMatch            URNEventType = "match"
+	EventStage            URNEventType = "stage"
+	EventSeason           URNEventType = "season"
+	EventTournament       URNEventType = "tournament"
+	EventSimpleTournament URNEventType = "simple_tournament"
+	EventDraw             URNEventType = "draw"
+	EventUnknown          URNEventType = "?"
+)
+
+type URNEntityType string
+
+const (
+	EntityPlayer  URNEntityType = "player"
+	EntityUnknown URNEntityType = "?"
+	// TODO: add others
+)
+
+func (u URN) EventURNType() URNEventType {
+	switch u.LastNID() {
+	case "match":
+		return EventMatch
+	case "stage":
+		return EventStage
+	case "season":
+		return EventSeason
+	case "tournament":
+		return EventTournament
+	case "simple_tournament":
+		return EventSimpleTournament
+	case "draw":
+		return EventDraw
+	default:
+		return EventUnknown
+	}
+}
+
+func (u URN) EntityURNType() URNEntityType {
+	switch u.LastNID() {
+	case "player":
+		return EntityPlayer
+	default:
+		return EntityUnknown
+	}
+}
 
 // EventID tries to generate unique id for all types of events. Most comon are
 // those with prefix sr:match for them we reserve positive id-s. All others got
@@ -365,6 +394,8 @@ const (
 	MessageTypeProducersChange
 )
 
+const InvalidMessageName = "?"
+
 var messageTypes = []MessageType{
 	MessageTypeUnknown,
 
@@ -387,7 +418,7 @@ var messageTypes = []MessageType{
 }
 
 var messageTypeNames = []string{
-	InvalidName,
+	InvalidMessageName,
 
 	"odds_change",
 	"fixture_change",
@@ -424,7 +455,7 @@ func (m MessageType) String() string {
 			return messageTypeNames[i]
 		}
 	}
-	return InvalidName
+	return InvalidMessageName
 }
 
 func (m MessageType) Kind() MessageKind {

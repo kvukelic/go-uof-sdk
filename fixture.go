@@ -7,8 +7,9 @@ import (
 )
 
 type FixtureRsp struct {
-	Fixture     Fixture   `xml:"fixture" json:"fixture"`
+	XMLName     xml.Name  `xml:"fixtures_fixture"`
 	GeneratedAt time.Time `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
+	Fixture     Fixture   `xml:"fixture" json:"fixture"`
 }
 
 // Fixtures describe static or semi-static information about matches and races.
@@ -309,3 +310,24 @@ func (f *Fixture) PP() string {
 	name := fmt.Sprintf("%s - %s", f.Home.Name, f.Away.Name)
 	return fmt.Sprintf("%-90s %12s %15s", name, f.Scheduled.Format("02.01. 15:04"), f.Status)
 }
+
+// type TournamentInfoRsp struct {
+// 	XMLName     xml.Name  `xml:"tournament_info"`
+// 	GeneratedAt time.Time `xml:"-" json:"generatedAt,omitempty"`
+// 	Fixture
+// }
+
+// func (tr *TournamentInfoRsp) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+// 	// TODO: is there a nicer way to extract the 'generated_at' attribute?
+// 	for _, attr := range start.Attr {
+// 		if attr.Name.Local == "generated_at" {
+// 			tsp, err := time.Parse(time.RFC3339, attr.Value)
+// 			if err != nil {
+// 				return err
+// 			}
+// 			tr.GeneratedAt = tsp
+// 			break
+// 		}
+// 	}
+// 	return d.DecodeElement(&tr.Fixture, &start)
+// }

@@ -11,9 +11,9 @@ func TestProducer(t *testing.T) {
 	assert.Equal(t, "pre", Producer(3).Code())
 	assert.Equal(t, "Ctrl", Producer(3).Name())
 	assert.Equal(t, "Betradar Ctrl", Producer(3).Description())
-	assert.Equal(t, InvalidName, Producer(-1).String())
-	assert.Equal(t, InvalidName, Producer(-1).Name())
-	assert.Equal(t, InvalidName, Producer(-1).Description())
+	assert.Equal(t, InvalidProducerName, Producer(-1).String())
+	assert.Equal(t, InvalidProducerName, Producer(-1).Name())
+	assert.Equal(t, InvalidProducerName, Producer(-1).Description())
 	assert.Equal(t, 0, Producer(-1).RecoveryWindow())
 
 	assert.Equal(t, 259200000, Producer(3).RecoveryWindow())
@@ -24,7 +24,7 @@ func TestURN(t *testing.T) {
 	u := URN("sr:match:123")
 	assert.Equal(t, 123, u.ID())
 	assert.Equal(t, "match", u.LastNID())
-	assert.Equal(t, URN("sr:match:123"), NewEventURN(123))
+	assert.Equal(t, URN("sr:match:123"), EventURN(PrefixSR, EventMatch, 123))
 	assert.Equal(t, "sr:match:123", URN("sr:match:123").String())
 
 	assert.Equal(t, 0, URN("").ID())
@@ -69,7 +69,7 @@ func TestMessageTypes(t *testing.T) {
 		assert.Equal(t, m, m2)
 	}
 
-	assert.Equal(t, InvalidName, MessageType(127).String())
+	assert.Equal(t, InvalidMessageName, MessageType(127).String())
 
 	assert.Equal(t, MessageKindEvent, MessageType(1).Kind())
 	assert.Equal(t, MessageKindLexicon, MessageType(32).Kind())

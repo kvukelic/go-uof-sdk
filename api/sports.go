@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/xml"
 	"time"
 
 	"github.com/minus5/go-uof-sdk"
@@ -57,6 +58,32 @@ type playerRsp struct {
 type fixtureRsp struct {
 	Fixture     uof.Fixture `xml:"fixture" json:"fixture"`
 	GeneratedAt time.Time   `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
+}
+
+func (fr *fixtureRsp) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	if start.Name.Local == "tournament_info" {
+		for _, attr := range start.Attr {
+			if attr.Name.Local == "generated_at" {
+				tsp, err := time.Parse(time.RFC3339, attr.Value)
+				if err != nil {
+					return err
+				}
+				fr.GeneratedAt = tsp
+				break
+			}
+		}
+		return d.DecodeElement(&fr.Fixture, &start)
+	} else {
+		var overlay struct {
+			Fixture     uof.Fixture `xml:"fixture"`
+			GeneratedAt time.Time   `xml:"generated_at,attr,omitempty"`
+		}
+		defer func() {
+			fr.Fixture = overlay.Fixture
+			fr.GeneratedAt = overlay.GeneratedAt
+		}()
+		return d.DecodeElement(&overlay, &start)
+	}
 }
 
 type fixtureChangesRsp struct {

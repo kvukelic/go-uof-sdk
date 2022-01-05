@@ -173,7 +173,7 @@ func toSpecifiers(specifiers, extendedSpecifiers string) map[string]string {
 			k := p[0]
 			v := p[1]
 			if k == "player" {
-				v = strings.TrimPrefix(v, srPlayer)
+				v = strings.TrimPrefix(v, EntityNamespace(PrefixSR, EntityPlayer))
 			}
 			sm[k] = v
 		}
@@ -182,14 +182,14 @@ func toSpecifiers(specifiers, extendedSpecifiers string) map[string]string {
 }
 
 func toPlayerID(id string) int {
-	if strings.HasPrefix(id, srPlayer) {
+	if strings.HasPrefix(id, EntityNamespace(PrefixSR, EntityPlayer)) {
 		return URN(id).ID()
 	}
 	return 0
 }
 
 func toOutcomeID(id string) int {
-	if strings.HasPrefix(id, srPlayer) {
+	if strings.HasPrefix(id, EntityNamespace(PrefixSR, EntityPlayer)) {
 		return toPlayerID(id)
 	}
 	if i, err := strconv.ParseInt(id, 10, 64); err == nil {
@@ -199,7 +199,7 @@ func toOutcomeID(id string) int {
 }
 
 func toVariantURN(id string) URN {
-	if strings.HasPrefix(id, srPlayer) {
+	if strings.HasPrefix(id, EntityNamespace(PrefixSR, EntityPlayer)) {
 		return ""
 	}
 	if _, err := strconv.ParseInt(id, 10, 64); err == nil {
