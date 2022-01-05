@@ -57,13 +57,16 @@ type Market struct {
 	// If present, this is set to 1, which states that this is the most balanced
 	// or recommended market line. This setting makes most sense for markets where
 	// multiple lines are provided (e.g. the Totals market).
-	Favourite *bool     `xml:"favourite,attr,omitempty" json:"favourite,omitempty"`
-	Outcomes  []Outcome `xml:"outcome,omitempty" json:"outcome,omitempty"`
+	Favourite      *bool           `xml:"favourite,attr,omitempty" json:"favourite,omitempty"`
+	Outcomes       []Outcome       `xml:"outcome,omitempty" json:"outcome,omitempty"`
+	MarketMetadata *MarketMetadata `xml:"market_metadata,omitempty"`
+}
+
+type MarketMetadata struct {
+	StartTime *int `xml:"start_time,attr,omitempty" json:"startTime,omitempty"`
+	EndTime   *int `xml:"end_time,attr,omitempty" json:"endTime,omitempty"`
 	// Timestamp in UTC when to betstop this market. Typically used for outrights
 	// and typically is the start-time of the event the market refers to.
-	NextBetstop *int `json:"nextBetstop,omitempty"`
-}
-type MarketMetadata struct {
 	NextBetstop *int `xml:"next_betstop,attr,omitempty" json:"nextBetstop,omitempty"`
 }
 
@@ -114,9 +117,6 @@ func (m *Market) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		Status             *int8  `xml:"status,attr,omitempty"`
 		Specifiers         string `xml:"specifiers,attr,omitempty" json:"specifiers,omitempty"`
 		ExtendedSpecifiers string `xml:"extended_specifiers,attr,omitempty" json:"extendedSpecifiers,omitempty"`
-		MarketMetadata     *struct {
-			NextBetstop *int `xml:"next_betstop,attr,omitempty"`
-		} `xml:"market_metadata,omitempty"`
 	}
 	overlay.T = (*T)(m)
 	if err := d.DecodeElement(&overlay, &start); err != nil {
@@ -128,9 +128,6 @@ func (m *Market) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	}
 	m.Specifiers = toSpecifiers(overlay.Specifiers, overlay.ExtendedSpecifiers)
 	m.LineID = toLineID(overlay.Specifiers)
-	if overlay.MarketMetadata != nil {
-		m.NextBetstop = overlay.MarketMetadata.NextBetstop
-	}
 	return nil
 }
 
