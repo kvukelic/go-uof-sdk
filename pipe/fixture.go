@@ -8,9 +8,9 @@ import (
 )
 
 type fixtureAPI interface {
-	Fixture(lang uof.Lang, eventURN uof.URN) (*uof.Fixture, error)
-	FixtureChanges(lang uof.Lang, from time.Time) ([]uof.Change, time.Time, error)
-	FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.Fixture, <-chan time.Time, <-chan error)
+	Fixture(lang uof.Lang, eventURN uof.URN) (uof.FixtureRsp, error)
+	FixtureChanges(lang uof.Lang, from time.Time) (uof.ChangesRsp, error)
+	FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.FixtureRsp, <-chan error)
 }
 
 type fixture struct {
@@ -135,16 +135,16 @@ func (f *fixture) preloadFixtures() {
 	}
 	var wg sync.WaitGroup
 	wg.Add(len(f.languages))
-	tsps := make(chan time.Time, len(f.languages))
+	var recoveryTsp time.Time
 	for _, lang := range f.languages {
 		go func(lang uof.Lang) {
 			defer wg.Done()
-			in, tspc, errc := f.api.FixtureSchedule(lang, f.preloadTo, f.preloadMax)
-			for x := range in {
-				f.out <- uof.NewFixtureMessage(lang, x, uof.CurrentTimestamp())
-			}
-			if tsp := <-tspc; !tsp.IsZero() {
-				tsps <- tsp
+			rsps, errc := f.api.FixtureSchedule(lang, f.preloadTo, f.preloadMax)
+			for rsp := range rsps {
+				x, tsp := rsp.Fixture, rsp.GeneratedAt
+				recoveryTsp = earlierNonZero(recoveryTsp, tsp)
+				generatedAt := int(tsp.UnixNano() / 1e6)
+				f.out <- uof.NewFixtureMessage(lang, x, uof.CurrentTimestamp(), generatedAt)
 			}
 			if err := <-errc; err != nil {
 				f.errc <- err
@@ -152,8 +152,7 @@ func (f *fixture) preloadFixtures() {
 		}(lang)
 	}
 	wg.Wait()
-	close(tsps)
-	f.recoveryTsp.set(earliest(tsps))
+	f.recoveryTsp.set(recoveryTsp)
 }
 
 // recoverFixtures requests potentially missed fixture changes and triggers
@@ -165,28 +164,24 @@ func (f *fixture) recoverFixtures() {
 	}
 	var wg sync.WaitGroup
 	wg.Add(len(f.languages))
-	rsps := make(chan []uof.Change, len(f.languages))
-	tsps := make(chan time.Time, len(f.languages))
+	changedUrns := make([]uof.URN, 0)
+	var recoveryTsp time.Time
 	for _, lang := range f.languages {
 		go func(lang uof.Lang) {
 			defer wg.Done()
-			chs, tsp, err := f.api.FixtureChanges(lang, pastLimit(from, time.Hour))
+			rsp, err := f.api.FixtureChanges(lang, pastLimit(from, time.Hour))
 			if err == nil {
-				rsps <- chs
-			}
-			if err == nil && !tsp.IsZero() {
-				tsps <- tsp
-			}
-			if err != nil {
+				recoveryTsp = earlierNonZero(recoveryTsp, rsp.GeneratedAt)
+				changedUrns = addChangeURNs(changedUrns, rsp.Changes)
+			} else {
 				f.errc <- err
+				return
 			}
 		}(lang)
 	}
 	wg.Wait()
-	close(rsps)
-	close(tsps)
-	f.recoveryTsp.shift(from, earliest(tsps))
-	for _, u := range collectURNs(rsps) {
+	f.recoveryTsp.shift(from, recoveryTsp)
+	for _, u := range changedUrns {
 		f.getFixture(u, uof.CurrentTimestamp(), false)
 	}
 }
@@ -205,15 +200,14 @@ func (f *fixture) getFixture(eventURN uof.URN, receivedAt int, forceUpdate bool)
 			if f.em.fresh(key) && !forceUpdate {
 				return
 			}
-			fixture, err := f.api.Fixture(lang, eventURN)
+			rsp, err := f.api.Fixture(lang, eventURN)
 			if err != nil {
 				f.errc <- err
 				return
 			}
-			if fixture != nil {
-				f.out <- uof.NewFixtureMessage(lang, *fixture, receivedAt)
-				f.em.insert(key)
-			}
+			generatedAt := int(rsp.GeneratedAt.UnixNano() / 1e6)
+			f.out <- uof.NewFixtureMessage(lang, rsp.Fixture, receivedAt, generatedAt)
+			f.em.insert(key)
 		}(lang)
 	}
 }
@@ -266,44 +260,43 @@ func Fixture(api fixtureAPI, languages []uof.Lang, preloadTo time.Time, preloadM
 	return StageWithSubProcesses(f.loop)
 }
 
-// collectURNs is an auxiliary function that returns all unique URNs appearing
-// in a channel of fixture change lists
-func collectURNs(rsps <-chan []uof.Change) []uof.URN {
-	set := make(map[uof.URN]struct{})
-	for rsp := range rsps {
-		for _, ch := range rsp {
-			set[ch.EventURN] = struct{}{}
+// AUXILIARIES
+
+// addChangeURNs is an auxiliary function that extracts URNs from a list of
+// UOF fixture changes and adds them to a given list of URNs. It also removes
+// any duplicate occurences of URNs in the final list.
+func addChangeURNs(urns []uof.URN, changes []uof.Change) []uof.URN {
+	dedupMap := make(map[uof.URN]bool)
+	for _, urn := range urns {
+		dedupMap[urn] = true
+	}
+	for _, ch := range changes {
+		dedupMap[ch.EventURN] = true
+	}
+	merged := make([]uof.URN, 0)
+	for urn, val := range dedupMap {
+		if val {
+			merged = append(merged, urn)
 		}
 	}
-	urns := make([]uof.URN, 0)
-	for urn := range set {
-		if urn != uof.NoURN {
-			urns = append(urns, urn)
-		}
-	}
-	return urns
+	return merged
 }
 
-// earliest is an auxiliary function that returns the earliest non-zero time
-// instant appearing in a channel
-func earliest(tsps <-chan time.Time) time.Time {
-	best := time.Time{}
-	for tsp := range tsps {
-		if tsp.IsZero() {
-			continue
-		}
-		if best.IsZero() || tsp.Before(best) {
-			best = tsp
-		}
+// earlierNonZero is an auxiliary function that returns the earliest time
+// instant from the set of given two time instants, excluding any zero
+// value instants. If both given instants are zero values, the function will
+// return a zero value time instant.
+func earlierNonZero(a, b time.Time) time.Time {
+	if a.IsZero() || (!b.IsZero() && b.Before(a)) {
+		return b
 	}
-	return best
+	return a
 }
 
 // pastLimit is an auxiliary function that, for a given time instant and
-// duration, returns either the given time instant or a time instant that is
-// the given amount of duration in the past from now.
-//
-// The function returns whichever of these two time instants is later.
+// duration, returns either that given time instant, or a time instant that
+// is the given amount of duration in the past from now. The function returns
+// whichever of these two time instants is later.
 func pastLimit(t time.Time, d time.Duration) time.Time {
 	minFrom := time.Now().Add(-d)
 	if t.Before(minFrom) {

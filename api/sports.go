@@ -19,23 +19,27 @@ const (
 // Markets all currently available markets for a language
 func (a *API) Markets(lang uof.Lang) (uof.MarketDescriptions, error) {
 	var mr marketsRsp
-	return mr.Markets, a.getAs(&mr, pathMarkets, &params{Lang: lang})
+	err := a.getAs(&mr, pathMarkets, &params{Lang: lang})
+	return mr.Markets, err
 }
 
 func (a *API) MarketVariant(lang uof.Lang, marketID int, variant string) (uof.MarketDescriptions, error) {
 	var mr marketsRsp
-	return mr.Markets, a.getAs(&mr, pathMarketVariant, &params{Lang: lang, MarketID: marketID, Variant: variant})
+	err := a.getAs(&mr, pathMarketVariant, &params{Lang: lang, MarketID: marketID, Variant: variant})
+	return mr.Markets, err
 }
 
 // Fixture lists the fixture for a specified sport event
-func (a *API) Fixture(lang uof.Lang, eventURN uof.URN) (*uof.Fixture, error) {
+func (a *API) Fixture(lang uof.Lang, eventURN uof.URN) (uof.FixtureRsp, error) {
 	var fr fixtureRsp
-	return &fr.Fixture, a.getAs(&fr, pathFixture, &params{Lang: lang, EventURN: eventURN})
+	err := a.getAs(&fr, pathFixture, &params{Lang: lang, EventURN: eventURN})
+	return uof.FixtureRsp{Fixture: fr.Fixture, GeneratedAt: fr.GeneratedAt}, err
 }
 
-func (a *API) Player(lang uof.Lang, playerID int) (*uof.Player, error) {
+func (a *API) Player(lang uof.Lang, playerID int) (uof.PlayerProfile, error) {
 	var pr playerRsp
-	return &pr.Player, a.getAs(&pr, pathPlayer, &params{Lang: lang, PlayerID: playerID})
+	err := a.getAs(&pr, pathPlayer, &params{Lang: lang, PlayerID: playerID})
+	return uof.PlayerProfile{Player: pr.Player, GeneratedAt: pr.GeneratedAt}, err
 }
 
 type marketsRsp struct {
@@ -67,10 +71,11 @@ type scheduleRsp struct {
 
 // FixtureChanges retrieves a list of fixture changes starting from the time
 // instant 'from'. It also returns the timestamp of the API response.
-func (a *API) FixtureChanges(lang uof.Lang, from time.Time) ([]uof.Change, time.Time, error) {
+func (a *API) FixtureChanges(lang uof.Lang, from time.Time) (uof.ChangesRsp, error) {
 	var fcr fixtureChangesRsp
 	dateTime := from.UTC().Format("2006-01-02T15:04:05")
-	return fcr.Changes, fcr.GeneratedAt, a.getAs(&fcr, fixtureChanges, &params{Lang: lang, DateTime: dateTime})
+	err := a.getAs(&fcr, fixtureChanges, &params{Lang: lang, DateTime: dateTime})
+	return uof.ChangesRsp{Changes: fcr.Changes, GeneratedAt: fcr.GeneratedAt}, err
 }
 
 // FixtureSchedule gets fixtures from schedule endpoints.
@@ -86,29 +91,21 @@ func (a *API) FixtureChanges(lang uof.Lang, from time.Time) ([]uof.Change, time.
 // Due to the pagination of the latter endpoint, the fixtures are returned
 // asynchronously via a channel. A separate channel, that receives and buffers
 // only the earliest timestamp of all received responses, is also returned.
-func (a *API) FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.Fixture, <-chan time.Time, <-chan error) {
+func (a *API) FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.FixtureRsp, <-chan error) {
 	errc := make(chan error, 1)
-	tsp := make(chan time.Time, 1)
-	out := make(chan uof.Fixture)
+	out := make(chan uof.FixtureRsp)
 	go func() {
 		defer close(out)
-		defer close(tsp)
 		defer close(errc)
 
-		rspTimestamp := time.Time{}
-		lastSchedule := time.Time{}
 		fixtureCount := 0
-
-		defer func() {
-			tsp <- rspTimestamp
-		}()
+		lastSchedule := time.Time{}
 
 		sendFixtures := func(rsp scheduleRsp) {
-			rspTimestamp = firstNonZero(rspTimestamp, rsp.GeneratedAt)
 			fixtureCount += len(rsp.Fixtures)
 			for _, f := range rsp.Fixtures {
-				lastSchedule = lastNonZero(lastSchedule, f.Scheduled)
-				out <- f
+				lastSchedule = laterNonZero(lastSchedule, f.Scheduled)
+				out <- uof.FixtureRsp{Fixture: f, GeneratedAt: rsp.GeneratedAt}
 			}
 		}
 
@@ -135,17 +132,10 @@ func (a *API) FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.
 		}
 	}()
 
-	return out, tsp, errc
+	return out, errc
 }
 
-func firstNonZero(a, b time.Time) time.Time {
-	if a.IsZero() || (!b.IsZero() && b.Before(a)) {
-		return b
-	}
-	return a
-}
-
-func lastNonZero(a, b time.Time) time.Time {
+func laterNonZero(a, b time.Time) time.Time {
 	if a.IsZero() || (!b.IsZero() && b.After(a)) {
 		return b
 	}

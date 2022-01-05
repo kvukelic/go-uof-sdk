@@ -16,31 +16,33 @@ type fixtureAPIMock struct {
 	sync.Mutex
 }
 
-func (m *fixtureAPIMock) Fixture(lang uof.Lang, eventURN uof.URN) (*uof.Fixture, error) {
+func (m *fixtureAPIMock) Fixture(lang uof.Lang, eventURN uof.URN) (uof.FixtureRsp, error) {
 	m.eventURN = eventURN
-	return &uof.Fixture{
-		URN: eventURN,
+	return uof.FixtureRsp{
+		Fixture: uof.Fixture{
+			URN: eventURN,
+		},
 	}, nil
 }
 
-func (m *fixtureAPIMock) FixtureChanges(lang uof.Lang, from time.Time) ([]uof.Change, time.Time, error) {
-	return []uof.Change{{
-		EventID:  m.changeURN.ID(),
-		EventURN: m.changeURN,
-	}}, time.Now(), nil
+func (m *fixtureAPIMock) FixtureChanges(lang uof.Lang, from time.Time) (uof.ChangesRsp, error) {
+	return uof.ChangesRsp{
+		Changes: []uof.Change{{
+			EventID:  m.changeURN.ID(),
+			EventURN: m.changeURN,
+		}},
+	}, nil
 }
 
-func (m *fixtureAPIMock) FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.Fixture, <-chan time.Time, <-chan error) {
+func (m *fixtureAPIMock) FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.FixtureRsp, <-chan error) {
 	m.preloadTo = to
-	out := make(chan uof.Fixture)
-	tspc := make(chan time.Time)
+	out := make(chan uof.FixtureRsp)
 	errc := make(chan error)
 	go func() {
 		close(out)
-		close(tspc)
 		close(errc)
 	}()
-	return out, tspc, errc
+	return out, errc
 }
 
 func TestFixturePipe(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 )
 
 type playerAPI interface {
-	Player(lang uof.Lang, playerID int) (*uof.Player, error)
+	Player(lang uof.Lang, playerID int) (uof.PlayerProfile, error)
 }
 
 type player struct {
@@ -59,13 +59,14 @@ func (p *player) get(playerID, requestedAt int) {
 				return
 			}
 			p.em.insert(key)
-			ap, err := p.api.Player(lang, playerID)
+			pp, err := p.api.Player(lang, playerID)
 			if err != nil {
 				p.em.remove(key)
 				p.errc <- err
 				return
 			}
-			p.out <- uof.NewPlayerMessage(lang, ap, requestedAt)
+			generatedAt := int(pp.GeneratedAt.UnixNano() / 1e6)
+			p.out <- uof.NewPlayerMessage(lang, &pp.Player, requestedAt, generatedAt)
 		}(lang)
 	}
 }

@@ -248,7 +248,7 @@ func TestNewMessage(t *testing.T) {
 	m := NewConnnectionMessage(ConnectionStatusUp)
 	assert.True(t, m.Is(MessageTypeConnection))
 
-	m = NewPlayerMessage(LangEN, nil, 0)
+	m = NewPlayerMessage(LangEN, nil, 0, 0)
 	assert.True(t, m.Is(MessageTypePlayer))
 
 	m = NewMarketsMessage(LangEN, nil, 0)
@@ -257,7 +257,7 @@ func TestNewMessage(t *testing.T) {
 	m = NewProducersChangeMessage(nil)
 	assert.True(t, m.Is(MessageTypeProducersChange))
 
-	m = NewFixtureMessage(LangEN, Fixture{}, 0)
+	m = NewFixtureMessage(LangEN, Fixture{}, 0, 0)
 	assert.True(t, m.Is(MessageTypeFixture))
 
 	m, err := NewFixtureMessageFromBuf(LangEN, nil, 0)
@@ -270,7 +270,7 @@ func TestNewMessage(t *testing.T) {
 
 func TestNewMessageFromBufFail(t *testing.T) {
 	failing := []byte{}
-	expectErr := fmt.Errorf("NOTICE uof error op: message.unpack, inner: EOF")
+	expectErr := fmt.Errorf("NOTICE uof error op: message.Unpack, inner: EOF")
 	m, err := NewFixtureMessageFromBuf(LangEN, failing, 0)
 	assert.Nil(t, m)
 	assert.Error(t, err)
@@ -285,7 +285,7 @@ func TestUnpackFail(t *testing.T) {
 
 	_, err := NewQueueMessage("hi.pre.-.bet_cancel.1.sr:match.1234.-", buf)
 	assert.Error(t, err)
-	assert.Equal(t, `NOTICE uof error op: message.unpack, inner: strconv.ParseInt: parsing "int": invalid syntax`, err.Error())
+	assert.Equal(t, `NOTICE uof error op: message.Unpack, inner: strconv.ParseInt: parsing "int": invalid syntax`, err.Error())
 
 	// height should be int
 	buf = []byte(`
@@ -295,7 +295,7 @@ func TestUnpackFail(t *testing.T) {
 	`)
 	_, err = NewAPIMessage(LangEN, MessageTypePlayer, buf)
 	assert.Error(t, err)
-	assert.Equal(t, `NOTICE uof error op: message.unpack, inner: strconv.ParseInt: parsing "int": invalid syntax`, err.Error())
+	assert.Equal(t, `NOTICE uof error op: message.Unpack, inner: strconv.ParseInt: parsing "int": invalid syntax`, err.Error())
 
 	var m Message
 	err = m.Unmarshal(nil)
@@ -305,7 +305,7 @@ func TestUnpackFail(t *testing.T) {
 	m.Type = -1
 	err = m.unpack()
 	assert.Error(t, err)
-	assert.Equal(t, `NOTICE uof error op: message.unpack, inner: unknown message type -1`, err.Error())
+	assert.Equal(t, `NOTICE uof error op: message.Unpack, inner: unknown message type -1`, err.Error())
 }
 
 func TestEnrichHeaderAfterUnpack(t *testing.T) {

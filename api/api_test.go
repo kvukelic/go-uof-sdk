@@ -91,26 +91,26 @@ func testMarketVariant(t *testing.T, a *API) {
 
 func testFixture(t *testing.T, a *API) {
 	lang := uof.LangEN
-	f, err := a.Fixture(lang, "sr:match:8696826")
+	rsp, err := a.Fixture(lang, "sr:match:8696826")
 	assert.Nil(t, err)
-	assert.Equal(t, "IK Oddevold", f.Home.Name)
+	assert.Equal(t, "IK Oddevold", rsp.Fixture.Home.Name)
 }
 
 func testPlayer(t *testing.T, a *API) {
 	lang := uof.LangEN
-	p, err := a.Player(lang, 947)
+	pp, err := a.Player(lang, 947)
 	assert.NoError(t, err)
-	assert.Equal(t, "Lee Barnard", p.FullName)
+	assert.Equal(t, "Lee Barnard", pp.Player.FullName)
 }
 
 func testFixtures(t *testing.T, a *API) {
 	lang := uof.LangEN
 	to := time.Now() //.Add(24*3*time.Hour)
 	max := 50000
-	in, _, errc := a.FixtureSchedule(lang, to, max)
-	for f := range in {
+	rsps, errc := a.FixtureSchedule(lang, to, max)
+	for rsp := range rsps {
 		if testing.Verbose() {
-			fmt.Printf("\t%s\n", f.PP())
+			fmt.Printf("\t%s\n", rsp.Fixture.PP())
 		}
 	}
 	go func() {

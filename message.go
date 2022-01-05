@@ -21,6 +21,7 @@ type Header struct {
 	EventURN    URN             `json:"eventURN,omitempty"`
 	ReceivedAt  int             `json:"receivedAt,omitempty"`
 	RequestedAt int             `json:"requestedAt,omitempty"`
+	GeneratedAt int             `json:"generatedAt,omitempty"`
 	Producer    Producer        `json:"producer,omitempty"`
 	Timestamp   int             `json:"timestamp,omitempty"`
 }
@@ -199,6 +200,7 @@ func (m *Message) unpack() error {
 	case MessageTypeFixture:
 		fr := FixtureRsp{}
 		unmarshal(&fr)
+		m.GeneratedAt = int(fr.GeneratedAt.UnixNano() / 1e6)
 		m.Fixture = &fr.Fixture
 	case MessageTypeMarkets:
 		md := &MarketsRsp{}
@@ -207,6 +209,7 @@ func (m *Message) unpack() error {
 	case MessageTypePlayer:
 		pp := PlayerProfile{}
 		unmarshal(&pp)
+		m.GeneratedAt = int(pp.GeneratedAt.UnixNano() / 1e6)
 		m.Player = &pp.Player
 	default:
 		err := fmt.Errorf("unknown message type %d", m.Type)
@@ -246,13 +249,14 @@ func NewMarketsMessage(lang Lang, ms MarketDescriptions, requestedAt int) *Messa
 	return m
 }
 
-func NewPlayerMessage(lang Lang, player *Player, requestedAt int) *Message {
+func NewPlayerMessage(lang Lang, player *Player, requestedAt, generatedAt int) *Message {
 	return &Message{
 		Header: Header{
 			Type:        MessageTypePlayer,
 			Lang:        lang,
 			ReceivedAt:  uniqTimestamp(),
 			RequestedAt: requestedAt,
+			GeneratedAt: generatedAt,
 		},
 		Body: Body{Player: player},
 	}
@@ -286,7 +290,7 @@ func NewProducersChangeMessage(pc ProducersChange) *Message {
 	}
 }
 
-func NewFixtureMessage(lang Lang, x Fixture, requestedAt int) *Message {
+func NewFixtureMessage(lang Lang, x Fixture, requestedAt, generatedAt int) *Message {
 	return &Message{
 		Header: Header{
 			Type:        MessageTypeFixture,
@@ -295,6 +299,7 @@ func NewFixtureMessage(lang Lang, x Fixture, requestedAt int) *Message {
 			Lang:        lang,
 			ReceivedAt:  uniqTimestamp(),
 			RequestedAt: requestedAt,
+			GeneratedAt: generatedAt,
 		},
 		Body: Body{Fixture: &x},
 	}
