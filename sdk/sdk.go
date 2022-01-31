@@ -17,19 +17,19 @@ type ErrorListenerFunc func(err error)
 
 // Config is active SDK configuration
 type Config struct {
-	BookmakerID   string
-	Token         string
-	Producers     []queue.ProducerConfig
-	FixturesTo    time.Time
-	FixturesMax   int
-	Variants      bool
-	Outrights     []string
-	Stages        []pipe.InnerStage
-	Replay        func(*api.ReplayAPI) error
-	Env           uof.Environment
-	Staging       bool
-	Languages     []uof.Lang
-	ErrorListener ErrorListenerFunc
+	BookmakerID     string
+	Token           string
+	Producers       []queue.ProducerConfig
+	FixturesTo      time.Time
+	FixturesMax     int
+	Variants        bool
+	ExtraNamespaces []string
+	Stages          []pipe.InnerStage
+	Replay          func(*api.ReplayAPI) error
+	Env             uof.Environment
+	Staging         bool
+	Languages       []uof.Lang
+	ErrorListener   ErrorListenerFunc
 }
 
 // Option sets attributes on the Config.
@@ -64,8 +64,8 @@ func Run(ctx context.Context, options ...Option) error {
 		pipe.Recovery(apiConn),
 	}
 
-	if len(c.Outrights) > 0 {
-		stages = append(stages, pipe.Outrights(apiConn, c.Languages, c.Outrights))
+	if len(c.ExtraNamespaces) > 0 {
+		stages = append(stages, pipe.ExtraFixtures(apiConn, c.Languages, c.ExtraNamespaces))
 	}
 
 	stages = append(stages, c.Stages...)
@@ -95,11 +95,11 @@ func firstErr(errc <-chan error, errorListener ErrorListenerFunc) error {
 func config(options ...Option) Config {
 	// defaults
 	c := &Config{
-		Producers: make([]queue.ProducerConfig, 0),
-		Variants:  true,
-		Outrights: make([]string, 0),
-		Languages: defaultLanguages,
-		Env:       uof.Production,
+		Producers:       make([]queue.ProducerConfig, 0),
+		Variants:        true,
+		ExtraNamespaces: make([]string, 0),
+		Languages:       defaultLanguages,
+		Env:             uof.Production,
 	}
 	for _, o := range options {
 		o(c)
@@ -294,16 +294,20 @@ func ListenErrors(listener ErrorListenerFunc) Option {
 	}
 }
 
-// Outrights defines event types that will be processed in the Outrights stage of
-// the pipeline.
-func Outrights(evPrefixes []uof.URNPrefixType, evTypes []uof.URNEventType) Option {
+// ExtraFixtureTypes allows for definition of event types for which the event fixture
+// will be requested from the API upon each received feed message. This is to circumvent
+// the lack of preload options on Betradar's side for various event types.
+//
+// The event types are defined as a combination of two lists: list of Betradar URN prefix
+// types and list of Betradar URN event types. Such a definition means that any events that
+// combine any listed prefix type and any listed event type in their URN will be handled.
+// URN type constants are provided by the top-level SDK package.
+func ExtraFixtureTypes(evPrefixes []uof.URNPrefixType, evTypes []uof.URNEventType) Option {
 	return func(c *Config) {
-		namespaces := make([]string, 0)
 		for _, p := range evPrefixes {
 			for _, t := range evTypes {
-				namespaces = append(namespaces, uof.EventNamespace(p, t))
+				c.ExtraNamespaces = append(c.ExtraNamespaces, uof.EventNamespace(p, t))
 			}
 		}
-		c.Outrights = namespaces
 	}
 }
