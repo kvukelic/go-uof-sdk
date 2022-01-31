@@ -17,19 +17,20 @@ type ErrorListenerFunc func(err error)
 
 // Config is active SDK configuration
 type Config struct {
-	BookmakerID     string
-	Token           string
-	Producers       []queue.ProducerConfig
-	FixturesTo      time.Time
-	FixturesMax     int
-	Variants        bool
-	ExtraNamespaces []string
-	Stages          []pipe.InnerStage
-	Replay          func(*api.ReplayAPI) error
-	Env             uof.Environment
-	Staging         bool
-	Languages       []uof.Lang
-	ErrorListener   ErrorListenerFunc
+	BookmakerID      string
+	Token            string
+	Producers        []queue.ProducerConfig
+	FixturesTo       time.Time
+	FixturesMax      int
+	Variants         bool
+	OutrightVariants bool
+	ExtraNamespaces  []string
+	Stages           []pipe.InnerStage
+	Replay           func(*api.ReplayAPI) error
+	Env              uof.Environment
+	Staging          bool
+	Languages        []uof.Lang
+	ErrorListener    ErrorListenerFunc
 }
 
 // Option sets attributes on the Config.
@@ -57,7 +58,7 @@ func Run(ctx context.Context, options ...Option) error {
 	}
 
 	stages := []pipe.InnerStage{
-		pipe.Markets(apiConn, c.Languages, c.Variants),
+		pipe.Markets(apiConn, c.Languages, c.Variants, c.OutrightVariants),
 		pipe.Fixture(apiConn, c.Languages, c.FixturesTo, c.FixturesMax),
 		pipe.Player(apiConn, c.Languages),
 		pipe.BetStop(),
@@ -95,11 +96,12 @@ func firstErr(errc <-chan error, errorListener ErrorListenerFunc) error {
 func config(options ...Option) Config {
 	// defaults
 	c := &Config{
-		Producers:       make([]queue.ProducerConfig, 0),
-		Variants:        true,
-		ExtraNamespaces: make([]string, 0),
-		Languages:       defaultLanguages,
-		Env:             uof.Production,
+		Producers:        make([]queue.ProducerConfig, 0),
+		Variants:         true,
+		OutrightVariants: true,
+		ExtraNamespaces:  make([]string, 0),
+		Languages:        defaultLanguages,
+		Env:              uof.Production,
 	}
 	for _, o := range options {
 		o(c)
@@ -284,6 +286,13 @@ func FixturePreload(to time.Time, max int) Option {
 func NoVariants() Option {
 	return func(c *Config) {
 		c.Variants = false
+	}
+}
+
+// NoOutrights disables outright market description messages.
+func NoOutrights() Option {
+	return func(c *Config) {
+		c.OutrightVariants = false
 	}
 }
 

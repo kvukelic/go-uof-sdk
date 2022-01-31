@@ -27,7 +27,7 @@ func (m *marketsAPIMock) MarketVariant(lang uof.Lang, marketID int, variant stri
 
 func TestMarketsPipe(t *testing.T) {
 	a := &marketsAPIMock{requests: make(map[string]struct{})}
-	ms := Markets(a, []uof.Lang{uof.LangEN, uof.LangDE}, true)
+	ms := Markets(a, []uof.Lang{uof.LangEN, uof.LangDE}, true, false)
 	assert.NotNil(t, ms)
 
 	in := make(chan *uof.Message)
@@ -61,7 +61,7 @@ func TestMarketsPipe(t *testing.T) {
 
 func TestMarketsPipeNoVariants(t *testing.T) {
 	a := &marketsAPIMock{requests: make(map[string]struct{})}
-	ms := Markets(a, []uof.Lang{uof.LangEN, uof.LangDE}, false)
+	ms := Markets(a, []uof.Lang{uof.LangEN, uof.LangDE}, false, false)
 	assert.NotNil(t, ms)
 	in := make(chan *uof.Message)
 	out, _ := ms(in)

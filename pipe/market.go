@@ -17,6 +17,7 @@ type markets struct {
 	api       marketsAPI
 	languages []uof.Lang
 	variants  bool
+	outrights bool
 	em        *expireMap
 	errc      chan<- error
 	out       chan<- *uof.Message
@@ -25,12 +26,13 @@ type markets struct {
 }
 
 // getting all markets on the start
-func Markets(api marketsAPI, languages []uof.Lang, variants bool) InnerStage {
+func Markets(api marketsAPI, languages []uof.Lang, variants, outrights bool) InnerStage {
 	var wg sync.WaitGroup
 	m := &markets{
 		api:       api,
 		languages: languages,
 		variants:  variants,
+		outrights: outrights,
 		em:        newExpireMap(24 * time.Hour),
 		subProcs:  &wg,
 		rateLimit: make(chan struct{}, ConcurentAPICallsLimit),
@@ -44,9 +46,20 @@ func (s *markets) loop(in <-chan *uof.Message, out chan<- *uof.Message, errc cha
 	s.getAll()
 	for m := range in {
 		out <- m
-		if s.variants && m.Is(uof.MessageTypeOddsChange) {
+		if m.Is(uof.MessageTypeOddsChange) && (s.variants || s.outrights) {
 			m.OddsChange.EachVariantMarket(func(marketID int, variant string) {
-				s.variantMarket(marketID, variant, m.ReceivedAt)
+				if strings.HasPrefix(variant, "pre:playerprops") {
+					// TODO: it is not working for this type of variant markets
+					return
+				}
+				if s.outrights && strings.HasPrefix(variant, "pre:markettext") {
+					s.variantMarket(marketID, variant, m.ReceivedAt)
+					return
+				}
+				if s.variants && !strings.HasPrefix(variant, "pre:markettext") {
+					s.variantMarket(marketID, variant, m.ReceivedAt)
+					return
+				}
 			})
 		}
 	}
@@ -72,12 +85,7 @@ func (s *markets) getAll() {
 }
 
 func (s *markets) variantMarket(marketID int, variant string, requestedAt int) {
-	if strings.HasPrefix(variant, "pre:playerprops") {
-		// TODO: it is not working for this type of variant markets
-		return
-	}
 	s.subProcs.Add(len(s.languages))
-
 	for _, lang := range s.languages {
 		go func(lang uof.Lang) {
 			defer s.subProcs.Done()
