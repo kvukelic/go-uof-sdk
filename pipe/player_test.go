@@ -27,7 +27,7 @@ func (m *playerAPIMock) Player(lang uof.Lang, playerID int) (uof.PlayerProfile, 
 
 func TestPlayerPipe(t *testing.T) {
 	a := &playerAPIMock{requests: make(map[int]struct{})}
-	p := Player(a, []uof.Lang{uof.LangEN, uof.LangDE})
+	p := Player(a, []uof.Lang{uof.LangEN, uof.LangDE}, false)
 	assert.NotNil(t, p)
 
 	in := make(chan *uof.Message)
@@ -51,6 +51,42 @@ func TestPlayerPipe(t *testing.T) {
 	}
 	assert.Equal(t, 82, cnt)
 	assert.Equal(t, 82, len(a.requests))
+}
+
+func TestPlayerPipeWithPlayerConfirm(t *testing.T) {
+	a := &playerAPIMock{requests: make(map[int]struct{})}
+	p := Player(a, []uof.Lang{uof.LangEN, uof.LangDE}, true)
+	assert.NotNil(t, p)
+
+	in := make(chan *uof.Message)
+	out, _ := p(in)
+
+	// this type of message is passing through
+	m := uof.NewConnnectionMessage(uof.ConnectionStatusUp)
+	in <- m
+	om := <-out
+	assert.Equal(t, m, om)
+
+	oc := oddsChangeMessage(t)
+	in <- oc
+	om = <-out
+	assert.Equal(t, oc, om)
+
+	close(in)
+	cnt := 0
+	var last *uof.Message
+	for outm := range out {
+		cnt++
+		last = outm
+	}
+
+	// 82 player messages + 1 extra oddschange
+	assert.Equal(t, 83, cnt)
+	assert.Equal(t, 82, len(a.requests))
+	// the extra oddschange only has a header, copied from the original oddschange
+	assert.Equal(t, oc.Header, last.Header)
+	assert.Equal(t, uof.Body{}, last.Body)
+	assert.Equal(t, []byte{}, last.Raw)
 }
 
 func oddsChangeMessage(t *testing.T) *uof.Message {
