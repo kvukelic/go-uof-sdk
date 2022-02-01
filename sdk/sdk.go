@@ -24,6 +24,7 @@ type Config struct {
 	FixturesMax      int
 	Variants         bool
 	OutrightVariants bool
+	ConfirmVariants  bool
 	ConfirmPlayers   bool
 	ExtraNamespaces  []string
 	Stages           []pipe.InnerStage
@@ -59,7 +60,7 @@ func Run(ctx context.Context, options ...Option) error {
 	}
 
 	stages := []pipe.InnerStage{
-		pipe.Markets(apiConn, c.Languages, c.Variants, c.OutrightVariants),
+		pipe.Markets(apiConn, c.Languages, c.Variants, c.OutrightVariants, c.ConfirmVariants),
 		pipe.Fixture(apiConn, c.Languages, c.FixturesTo, c.FixturesMax),
 		pipe.Player(apiConn, c.Languages, c.ConfirmPlayers),
 		pipe.BetStop(),
@@ -101,6 +102,7 @@ func config(options ...Option) Config {
 		Variants:         true,
 		OutrightVariants: true,
 		ConfirmPlayers:   false,
+		ConfirmVariants:  false,
 		ExtraNamespaces:  make([]string, 0),
 		Languages:        defaultLanguages,
 		Env:              uof.Production,
@@ -305,6 +307,16 @@ func NoOutrights() Option {
 func ConfirmPlayers() Option {
 	return func(c *Config) {
 		c.ConfirmPlayers = true
+	}
+}
+
+// ConfirmVariants configures the SDK to send an additional OddsChange message whenever there has
+// been a previous OddsChange message that contained some variant markets; this additional message
+// is sent when data for all contained variant markets has been fetched from the API. The additional
+// message has the same header as the original OddsChange message, but has an empty body.
+func ConfirmVariants() Option {
+	return func(c *Config) {
+		c.ConfirmVariants = true
 	}
 }
 
