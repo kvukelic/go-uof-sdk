@@ -135,14 +135,14 @@ func (f *fixture) preloadFixtures() {
 	}
 	var wg sync.WaitGroup
 	wg.Add(len(f.languages))
-	var recoveryTsp time.Time
+	var recoveryTsp syncTime
 	for _, lang := range f.languages {
 		go func(lang uof.Lang) {
 			defer wg.Done()
 			rsps, errc := f.api.FixtureSchedule(lang, f.preloadTo, f.preloadMax)
 			for rsp := range rsps {
 				x, tsp := rsp.Fixture, rsp.GeneratedAt
-				recoveryTsp = earlierNonZero(recoveryTsp, tsp)
+				recoveryTsp.set(earlierNonZero(recoveryTsp.get(), tsp))
 				generatedAt := int(tsp.UnixNano() / 1e6)
 				f.out <- uof.NewFixtureMessage(lang, x, uof.CurrentTimestamp(), generatedAt)
 			}
@@ -152,7 +152,7 @@ func (f *fixture) preloadFixtures() {
 		}(lang)
 	}
 	wg.Wait()
-	f.recoveryTsp.set(recoveryTsp)
+	f.recoveryTsp.set(recoveryTsp.get())
 }
 
 // recoverFixtures requests potentially missed fixture changes and triggers
