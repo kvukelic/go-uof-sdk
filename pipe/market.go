@@ -74,7 +74,9 @@ func (s *markets) loop(in <-chan *uof.Message, out chan<- *uof.Message, errc cha
 				go func(msg *uof.Message) {
 					defer s.subProcs.Done()
 					wg.Wait()
-					out <- &uof.Message{Header: msg.Header, Raw: []byte{}, Body: uof.Body{}}
+					confirmMsg := uof.Message{Header: msg.Header, Raw: []byte{}, Body: uof.Body{}}
+					confirmMsg.Timestamp = 0
+					out <- &confirmMsg
 				}(m)
 			}
 		}

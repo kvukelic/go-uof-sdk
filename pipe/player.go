@@ -52,7 +52,9 @@ func (p *player) loop(in <-chan *uof.Message, out chan<- *uof.Message, errc chan
 				go func(msg *uof.Message) {
 					defer p.subProcs.Done()
 					wg.Wait()
-					out <- &uof.Message{Header: msg.Header, Raw: []byte{}, Body: uof.Body{}}
+					confirmMsg := uof.Message{Header: msg.Header, Raw: []byte{}, Body: uof.Body{}}
+					confirmMsg.Timestamp = 0
+					out <- &confirmMsg
 				}(m)
 			}
 		}
