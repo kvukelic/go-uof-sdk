@@ -180,7 +180,7 @@ type producer struct {
 
 // initProducers sets up a set of producers per provided configuration. It also
 // receives a channel to which alive message timeout signals will be sent.
-func initProducers(pcs []ProducerConfig, timeouts chan uof.Producer) []*producer {
+func initProducers(pcs []ProducerConfig, timeouts chan<- uof.Producer) []*producer {
 	producers := make([]*producer, 0)
 	for _, pc := range pcs {
 		cb := func() {
@@ -298,6 +298,9 @@ func (p *producer) alive(timestamp int, subscribed int) {
 			p.setStatus(uof.ProducerStatusDown, fmt.Sprintf("Alive message late (%dms)", interval))
 			return
 		}
+
+		p.aliveTimestamp = timestamp
+		return
 
 	case uof.ProducerStatusDown:
 
