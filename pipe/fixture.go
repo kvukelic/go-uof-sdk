@@ -164,15 +164,15 @@ func (f *fixture) recoverFixtures() {
 	}
 	var wg sync.WaitGroup
 	wg.Add(len(f.languages))
-	changedUrns := make([]uof.URN, 0)
-	var recoveryTsp time.Time
+	var changedURNs urnSet
+	var recoveryTsp syncTime
 	for _, lang := range f.languages {
 		go func(lang uof.Lang) {
 			defer wg.Done()
 			rsp, err := f.api.FixtureChanges(lang, pastLimit(from, time.Hour))
 			if err == nil {
-				recoveryTsp = earlierNonZero(recoveryTsp, rsp.GeneratedAt)
-				changedUrns = addChangeURNs(changedUrns, rsp.Changes)
+				recoveryTsp.set(earlierNonZero(recoveryTsp.get(), rsp.GeneratedAt))
+				changedURNs.addFromChanges(rsp.Changes)
 			} else {
 				f.errc <- err
 				return
@@ -180,8 +180,8 @@ func (f *fixture) recoverFixtures() {
 		}(lang)
 	}
 	wg.Wait()
-	f.recoveryTsp.shift(from, recoveryTsp)
-	for _, u := range changedUrns {
+	f.recoveryTsp.shift(from, recoveryTsp.get())
+	for _, u := range changedURNs.get() {
 		f.getFixture(u, uof.CurrentTimestamp(), false)
 	}
 }
@@ -262,26 +262,6 @@ func Fixture(api fixtureAPI, languages []uof.Lang, preloadTo time.Time, preloadM
 
 // AUXILIARIES
 
-// addChangeURNs is an auxiliary function that extracts URNs from a list of
-// UOF fixture changes and adds them to a given list of URNs. It also removes
-// any duplicate occurences of URNs in the final list.
-func addChangeURNs(urns []uof.URN, changes []uof.Change) []uof.URN {
-	dedupMap := make(map[uof.URN]bool)
-	for _, urn := range urns {
-		dedupMap[urn] = true
-	}
-	for _, ch := range changes {
-		dedupMap[ch.EventURN] = true
-	}
-	merged := make([]uof.URN, 0)
-	for urn, val := range dedupMap {
-		if val {
-			merged = append(merged, urn)
-		}
-	}
-	return merged
-}
-
 // earlierNonZero is an auxiliary function that returns the earliest time
 // instant from the set of given two time instants, excluding any zero
 // value instants. If both given instants are zero values, the function will
@@ -343,4 +323,47 @@ func (st *syncTime) get() time.Time {
 	st.RLock()
 	defer st.RUnlock()
 	return st.time
+}
+
+// urnSet is an auxiliary structure acting as a concurrent-safe set of uof.URNs
+type urnSet struct {
+	urns []uof.URN
+	sync.RWMutex
+}
+
+// add URNs from a list of uof.Changes to the set (with dedup)
+func (us *urnSet) addFromChanges(changes []uof.Change) {
+	dedupMap := us.toMap()
+	for _, ch := range changes {
+		dedupMap[ch.EventURN] = true
+	}
+	merged := make([]uof.URN, 0)
+	for urn := range dedupMap {
+		merged = append(merged, urn)
+	}
+	us.Lock()
+	defer us.Unlock()
+	us.urns = merged
+}
+
+// convert set to map[uof.URN]bool with value=true for each URN in set
+func (us *urnSet) toMap() map[uof.URN]bool {
+	us.RLock()
+	defer us.RUnlock()
+	ret := make(map[uof.URN]bool)
+	for _, urn := range us.urns {
+		ret[urn] = true
+	}
+	return ret
+}
+
+// get set as a slice of uof.URNs
+func (us *urnSet) get() []uof.URN {
+	us.RLock()
+	defer us.RUnlock()
+	ret := make([]uof.URN, 0, len(us.urns))
+	for _, urn := range us.urns {
+		ret = append(ret, urn)
+	}
+	return ret
 }
