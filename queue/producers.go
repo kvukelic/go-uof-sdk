@@ -174,8 +174,9 @@ type producer struct {
 	aliveMaxDelay    time.Duration
 	aliveTimeout     producerTimeout
 
-	recoveryTimestamp int
-	recoveryID        int
+	recoveryInProgress bool
+	recoveryTimestamp  int
+	recoveryID         int
 }
 
 // initProducers sets up a set of producers per provided configuration. It also
@@ -211,9 +212,6 @@ func (p *producer) setStatus(s uof.ProducerStatus, c string) {
 		p.status = s
 		p.statusTimestamp = uof.CurrentTimestamp()
 		p.statusComment = fmt.Sprintf("%s. Status set to [%s].", c, s.String())
-		if s == uof.ProducerStatusInRecovery {
-			p.recoveryID++
-		}
 	}
 }
 
@@ -222,7 +220,9 @@ func (p *producer) setStatus(s uof.ProducerStatus, c string) {
 // state 'inrecovery' and shall attempt recovery.
 func (p *producer) connectionUp() {
 	if p.status == uof.ProducerStatusDown {
-		p.setStatus(uof.ProducerStatusInRecovery, "Connection up")
+		p.recoveryID++
+		p.recoveryInProgress = true
+		p.setStatus(uof.ProducerStatusInRecovery, fmt.Sprintf("Connection up [request ID: %d]", p.recoveryID))
 	}
 }
 
@@ -281,7 +281,9 @@ func (p *producer) alive(timestamp int, subscribed int) {
 		if subscribed == 0 {
 			p.aliveTimeout.cancel()
 			p.aliveTimestamp = timestamp
-			p.setStatus(uof.ProducerStatusInRecovery, "Producer unsubscribed")
+			p.recoveryID++
+			p.recoveryInProgress = true
+			p.setStatus(uof.ProducerStatusInRecovery, fmt.Sprintf("Producer unsubscribed [request ID: %d]", p.recoveryID))
 			return
 		}
 
@@ -299,19 +301,27 @@ func (p *producer) alive(timestamp int, subscribed int) {
 			return
 		}
 
+		_, ok = p.aliveDelay(timestamp)
+		if !p.recoveryInProgress && ok {
+			p.aliveTimeout.restart()
+			p.setStatus(uof.ProducerStatusActive, fmt.Sprintf("Recovery complete [request ID: %d]", p.recoveryID))
+		}
+
 		p.aliveTimestamp = timestamp
 		return
 
 	case uof.ProducerStatusDown:
 
 		_, ok := p.aliveDelay(timestamp)
-		if !ok {
-			p.aliveTimestamp = 0
+		if ok {
+			p.aliveTimestamp = timestamp
+			p.recoveryID++
+			p.recoveryInProgress = true
+			p.setStatus(uof.ProducerStatusInRecovery, fmt.Sprintf("Timely alive message [request ID: %d]", p.recoveryID))
 			return
 		}
 
-		p.aliveTimestamp = timestamp
-		p.setStatus(uof.ProducerStatusInRecovery, "Timely alive message")
+		p.aliveTimestamp = 0
 		return
 
 	}
@@ -365,8 +375,7 @@ func (p *producer) snapshotComplete(id int) error {
 		return fmt.Errorf("wrong requestID (got %d, expected %d) for producer %s", id, p.recoveryID, p.uofProducer.String())
 	}
 
-	p.aliveTimeout.restart()
-	p.setStatus(uof.ProducerStatusActive, fmt.Sprintf("Snapshot complete (ID: %d)", id))
+	p.recoveryInProgress = false
 	return nil
 }
 
@@ -375,14 +384,14 @@ func (p *producer) snapshotComplete(id int) error {
 // an issue with either the connection to the source server or the source
 // server itself, and, if the producer is active, it is moved to 'down' state.
 func (p *producer) timeout() error {
-	if p.status != uof.ProducerStatusActive {
-		return fmt.Errorf("producer %s not active", p.uofProducer.String())
+	if p.status == uof.ProducerStatusActive {
+		p.aliveTimeout.cancel()
+		p.aliveTimestamp = 0
+		p.setStatus(uof.ProducerStatusDown, "Alive message timeout")
+		return nil
 	}
 
-	p.aliveTimeout.cancel()
-	p.aliveTimestamp = 0
-	p.setStatus(uof.ProducerStatusDown, "Alive message timeout")
-	return nil
+	return fmt.Errorf("producer %s not active", p.uofProducer.String())
 }
 
 // PRODUCER TIMEOUT TIMER
