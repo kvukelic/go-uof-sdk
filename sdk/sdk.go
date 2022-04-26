@@ -17,23 +17,23 @@ type ErrorListenerFunc func(err error)
 
 // Config is active SDK configuration
 type Config struct {
-	BookmakerID      string
-	Token            string
-	Producers        []queue.ProducerConfig
-	FixturesTo       time.Time
-	FixturesMax      int
-	Variants         bool
-	OutrightVariants bool
-	ConfirmVariants  bool
-	ConfirmPlayers   bool
-	ExtraPrefixes    []uof.PrefixType
-	ExtraEventTypes  []uof.EventType
-	Stages           []pipe.InnerStage
-	Replay           func(*api.ReplayAPI) error
-	Env              uof.Environment
-	Staging          bool
-	Languages        []uof.Lang
-	ErrorListener    ErrorListenerFunc
+	BookmakerID     string
+	Token           string
+	Producers       []queue.ProducerConfig
+	FixturesTo      time.Time
+	FixturesMax     int
+	VariantMarkets  bool
+	OutrightMarkets bool
+	ConfirmMarkets  bool
+	ConfirmPlayers  bool
+	ExtraPrefixes   []uof.PrefixType
+	ExtraEventTypes []uof.EventType
+	Stages          []pipe.InnerStage
+	Replay          func(*api.ReplayAPI) error
+	Env             uof.Environment
+	Staging         bool
+	Languages       []uof.Lang
+	ErrorListener   ErrorListenerFunc
 }
 
 // Option sets attributes on the Config.
@@ -64,7 +64,7 @@ func Run(ctx context.Context, options ...Option) error {
 	}
 
 	stages := []pipe.InnerStage{
-		pipe.Markets(apiConn, c.Languages, c.Variants, c.OutrightVariants, c.ConfirmVariants),
+		pipe.Markets(apiConn, c.Languages, c.VariantMarkets, c.OutrightMarkets, c.ConfirmMarkets),
 		pipe.Fixture(apiConn, c.Languages, c.FixturesTo, c.FixturesMax),
 		pipe.Player(apiConn, c.Languages, c.ConfirmPlayers),
 		pipe.BetStop(),
@@ -102,15 +102,15 @@ func firstErr(errc <-chan error, errorListener ErrorListenerFunc) error {
 func config(options ...Option) (Config, error) {
 	// defaults
 	c := &Config{
-		Producers:        make([]queue.ProducerConfig, 0),
-		Variants:         true,
-		OutrightVariants: true,
-		ConfirmPlayers:   false,
-		ConfirmVariants:  false,
-		ExtraPrefixes:    make([]uof.PrefixType, 0),
-		ExtraEventTypes:  make([]uof.EventType, 0),
-		Languages:        defaultLanguages,
-		Env:              uof.Production,
+		Producers:       make([]queue.ProducerConfig, 0),
+		VariantMarkets:  true,
+		OutrightMarkets: true,
+		ConfirmPlayers:  false,
+		ConfirmMarkets:  false,
+		ExtraPrefixes:   make([]uof.PrefixType, 0),
+		ExtraEventTypes: make([]uof.EventType, 0),
+		Languages:       defaultLanguages,
+		Env:             uof.Production,
 	}
 	for _, o := range options {
 		if err := o(c); err != nil {
@@ -187,13 +187,26 @@ func MaxInterval(max time.Duration) ProducerOption {
 	}
 }
 
-// MaxDelay sets the maximum allowed amount of delay between a timestamp of an
-// alive message, as reported from the source server, and the time at which SDK
-// received the message. Exceeding this threshold while the producer is active
-// will result in it being considered down.
+// MaxDelay sets boundaries on the maximum amount of delay between a timestamp
+// reported in an alive message and the time at which SDK received the message.
 //
-// If not used, or if the parameter is set to a negative value, no checks on
-// the delay of alive messages will be made.
+// Two limits are defined.
+//
+// The first limit is used for deciding if a feed in an unstable state has
+// become stable. If this limit is not exceeded, the producer in down state may
+// begin recovery, and the producer in (post)recovery state may turn active.
+//
+// The second limit is used for deciding if a feed in a stable state has become
+// unstable. If this limit is exceeded while the producer is active, it will
+// change to down state.
+//
+// If MaxDelay is not used, no checks on the delay of alive messages will be
+// made. If either parameter is set to a negative value, the checks involving
+// that parameter will not be made.
+//
+// Additionally, the second parameter cannot be set to a value less than the
+// first parameter; in such case, the SDK pipeline will return an error when
+// attempting to run it.
 func MaxDelay(accept, max time.Duration) ProducerOption {
 	return func(pc *queue.ProducerConfig) error {
 		err := pc.SetAliveMessageDelayLimits(accept, max)
@@ -308,18 +321,18 @@ func FixturePreload(to time.Time, max int) Option {
 	}
 }
 
-// NoVariants disables variant market description messages.
-func NoVariants() Option {
+// NoVariantMarkets disables variant market description messages.
+func NoVariantMarkets() Option {
 	return func(c *Config) error {
-		c.Variants = false
+		c.VariantMarkets = false
 		return nil
 	}
 }
 
-// NoOutrights disables outright market description messages.
-func NoOutrights() Option {
+// NoOutrightMarkets disables outright variant market description messages.
+func NoOutrightMarkets() Option {
 	return func(c *Config) error {
-		c.OutrightVariants = false
+		c.OutrightMarkets = false
 		return nil
 	}
 }
@@ -335,13 +348,13 @@ func ConfirmPlayers() Option {
 	}
 }
 
-// ConfirmVariants configures the SDK to send an additional OddsChange message whenever there has
+// ConfirmMarkets configures the SDK to send an additional OddsChange message whenever there has
 // been a previous OddsChange message that contained some variant markets; this additional message
 // is sent when data for all contained variant markets has been fetched from the API. The additional
 // message has the same header as the original OddsChange message, but has an empty body.
-func ConfirmVariants() Option {
+func ConfirmMarkets() Option {
 	return func(c *Config) error {
-		c.ConfirmVariants = true
+		c.ConfirmMarkets = true
 		return nil
 	}
 }
