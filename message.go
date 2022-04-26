@@ -290,6 +290,18 @@ func NewProducersChangeMessage(pc ProducersChange) *Message {
 	}
 }
 
+func NewAliveTimeoutMessage(p Producer) *Message {
+	return &Message{
+		Header: Header{
+			Type:       MessageTypeAliveTimeout,
+			Scope:      MessageScopeSystem,
+			ReceivedAt: uniqTimestamp(),
+			Producer:   p,
+		},
+		Body: Body{},
+	}
+}
+
 func NewFixtureMessage(lang Lang, x Fixture, requestedAt, generatedAt int) *Message {
 	return &Message{
 		Header: Header{
@@ -303,38 +315,6 @@ func NewFixtureMessage(lang Lang, x Fixture, requestedAt, generatedAt int) *Mess
 		},
 		Body: Body{Fixture: &x},
 	}
-}
-
-// NewFixtureMessageFromBuf creates uof.Message from fixture API response XML ([]byte)
-// message is created from raw XML response in order to save it in the message
-func NewFixtureMessageFromBuf(lang Lang, buf []byte, requestedAt int) (*Message, error) {
-	m := &Message{
-		Header: Header{
-			Type:        MessageTypeFixture,
-			Lang:        lang,
-			ReceivedAt:  uniqTimestamp(),
-			RequestedAt: requestedAt,
-		},
-		Raw: buf, // keep raw
-	}
-	if err := m.unpack(); err != nil {
-		return nil, err
-	}
-	if m.Fixture != nil { // if buf == nil
-		m.EventURN = m.Fixture.URN
-		m.EventID = m.Fixture.ID
-	}
-	return m, nil
-}
-
-func (m *Message) NewFixtureMessage(lang Lang, f Fixture) *Message {
-	c := &Message{
-		Header: m.Header,
-	}
-	c.Type = MessageTypeFixture
-	c.Lang = lang
-	c.Fixture = &f
-	return c
 }
 
 const separator = byte(10)

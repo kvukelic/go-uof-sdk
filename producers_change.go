@@ -18,9 +18,10 @@ func (p *ProducersChange) Add(producer Producer, timestamp int) {
 type ProducerStatus int8
 
 const (
-	ProducerStatusDown       ProducerStatus = -1
-	ProducerStatusActive     ProducerStatus = 1
-	ProducerStatusInRecovery ProducerStatus = 2
+	ProducerStatusDown         ProducerStatus = -1
+	ProducerStatusActive       ProducerStatus = 1
+	ProducerStatusInRecovery   ProducerStatus = 2
+	ProducerStatusPostRecovery ProducerStatus = 3
 )
 
 func (p ProducerStatus) String() string {
@@ -31,6 +32,8 @@ func (p ProducerStatus) String() string {
 		return "active"
 	case ProducerStatusInRecovery:
 		return "recovery"
+	case ProducerStatusPostRecovery:
+		return "postrecovery"
 	}
 	return ""
 }

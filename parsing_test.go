@@ -335,10 +335,8 @@ func TestFixture(t *testing.T) {
 	assert.Equal(t, f, *msgAPI.Fixture)
 
 	requestedAt := int(time.Now().UnixNano() / 1e6)
-	msgFormBuf, err := NewFixtureMessageFromBuf(LangEN, buf, requestedAt)
-	assert.NotNil(t, msgFormBuf)
-	assert.NotEqual(t, 0, len(msgFormBuf.Raw))
-	assert.Len(t, msgFormBuf.Raw, 5283)
+	msg := NewFixtureMessage(LangEN, f, requestedAt, 0)
+	assert.Equal(t, f, *msg.Fixture)
 }
 
 func TestFixutreWithPlayers(t *testing.T) {
@@ -355,10 +353,7 @@ func TestFixutreWithPlayers(t *testing.T) {
 func TestFixtureNoTournament(t *testing.T) {
 	buf, err := ioutil.ReadFile("./testdata/fixture-3.xml")
 	assert.Nil(t, err)
-
-	requestedAt := int(time.Now().UnixNano() / 1e6)
-	msgFormBuf, err := NewFixtureMessageFromBuf(LangEN, buf, requestedAt)
-	assert.Nil(t, msgFormBuf)
+	err = xml.Unmarshal(buf, &FixtureRsp{})
 	assert.Error(t, err)
 }
 

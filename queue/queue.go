@@ -90,6 +90,34 @@ func (c *Connection) drain(out chan<- *uof.Message, errc chan<- error) {
 	<-errsDone
 }
 
+func (c *Connection) bufferedDrain(size int, out chan<- *uof.Message, errc chan<- error) {
+	errsDone := make(chan struct{})
+	go func() {
+		for err := range c.errs {
+			errc <- uof.E("conn", err)
+		}
+		close(errsDone)
+	}()
+
+	buffer := make(chan amqp.Delivery, size)
+	go func() {
+		for m := range c.msgs {
+			buffer <- m
+		}
+		close(buffer)
+	}()
+
+	for m := range buffer {
+		m, err := uof.NewQueueMessage(m.RoutingKey, m.Body)
+		if err != nil {
+			errc <- uof.Notice("conn.DeliveryParse", err)
+			continue
+		}
+		out <- m
+	}
+	<-errsDone
+}
+
 func dial(ctx context.Context, server, bookmakerID, token string) (*Connection, error) {
 	addr := fmt.Sprintf("amqps://%s:@%s//unifiedfeed/%s", token, server, bookmakerID)
 

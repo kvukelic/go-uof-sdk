@@ -374,6 +374,7 @@ const (
 	MessageTypeAlive MessageType = iota + 64
 	MessageTypeSnapshotComplete
 	MessageTypeConnection
+	MessageTypeAliveTimeout
 	MessageTypeProducersChange
 )
 
@@ -397,6 +398,7 @@ var messageTypes = []MessageType{
 	MessageTypeAlive,
 	MessageTypeSnapshotComplete,
 	MessageTypeConnection,
+	MessageTypeAliveTimeout,
 	MessageTypeProducersChange,
 }
 
@@ -418,6 +420,7 @@ var messageTypeNames = []string{
 	"alive",
 	"snapshot_complete",
 	"connection",
+	"alive_timeout",
 	"producer_change",
 }
 

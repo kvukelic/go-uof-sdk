@@ -36,7 +36,7 @@ type Config struct {
 }
 
 // Option sets attributes on the Config.
-type Option func(*Config)
+type Option func(*Config) error
 
 // Run starts uof connector.
 //
@@ -44,7 +44,10 @@ type Option func(*Config)
 // Order in which options are set is not important.
 // Credentials and one of Callback or Pipe are functional minimum.
 func Run(ctx context.Context, options ...Option) error {
-	c := config(options...)
+	c, err := config(options...)
+	if err != nil {
+		return err
+	}
 	qc, apiConn, err := connect(ctx, c)
 	if err != nil {
 		return err
@@ -74,7 +77,7 @@ func Run(ctx context.Context, options ...Option) error {
 	stages = append(stages, c.Stages...)
 
 	errc := pipe.Build(
-		queue.WithProducerHandling(ctx, qc, c.Producers),
+		queue.WithProducerStates(ctx, qc, c.Producers),
 		stages...,
 	)
 	return firstErr(errc, c.ErrorListener)
@@ -95,7 +98,7 @@ func firstErr(errc <-chan error, errorListener ErrorListenerFunc) error {
 }
 
 // apply configuration options
-func config(options ...Option) Config {
+func config(options ...Option) (Config, error) {
 	// defaults
 	c := &Config{
 		Producers:        make([]queue.ProducerConfig, 0),
@@ -108,9 +111,11 @@ func config(options ...Option) Config {
 		Env:              uof.Production,
 	}
 	for _, o := range options {
-		o(c)
+		if err := o(c); err != nil {
+			return *c, err
+		}
 	}
-	return *c
+	return *c, nil
 }
 
 // connect to the queue and api
@@ -138,16 +143,19 @@ func connect(ctx context.Context, c Config) (*queue.Connection, *api.API, error)
 // The function may also receive configuration options that define various
 // parameters in the producer's state handling.
 func Subscribe(producer uof.Producer, opts ...ProducerOption) Option {
-	prod := queue.NewProducerConfig(producer)
-	for _, o := range opts {
-		o(&prod)
-	}
-	return func(c *Config) {
+	return func(c *Config) error {
+		prod := queue.NewProducerConfig(producer)
+		for _, o := range opts {
+			if err := o(&prod); err != nil {
+				return err
+			}
+		}
 		c.Producers = append(c.Producers, prod)
+		return nil
 	}
 }
 
-type ProducerOption func(*queue.ProducerConfig)
+type ProducerOption func(*queue.ProducerConfig) error
 
 // RecoverFrom sets the beginning of the recovery window for the initial
 // recovery of the producer. As with any recovery, if the set window
@@ -157,8 +165,9 @@ type ProducerOption func(*queue.ProducerConfig)
 // If not used, the beginning of the recovery window will be set to the
 // moment of registering the producer via Subscribe.
 func RecoverFrom(timestamp int) ProducerOption {
-	return func(pc *queue.ProducerConfig) {
-		pc.SetRecoveryTimestamp(timestamp)
+	return func(pc *queue.ProducerConfig) error {
+		pc.SetInitialRecoveryTimestamp(timestamp)
+		return nil
 	}
 }
 
@@ -169,9 +178,10 @@ func RecoverFrom(timestamp int) ProducerOption {
 //
 // If not used, or if the parameter is set to a negative value, no checks on
 // the interval between subsequent alive message timestamps will be made.
-func MaxInterval(d time.Duration) ProducerOption {
-	return func(pc *queue.ProducerConfig) {
-		pc.SetMaxIntervalDuration(d)
+func MaxInterval(max time.Duration) ProducerOption {
+	return func(pc *queue.ProducerConfig) error {
+		pc.SetAliveTimestampDiffLimit(max)
+		return nil
 	}
 }
 
@@ -182,9 +192,10 @@ func MaxInterval(d time.Duration) ProducerOption {
 //
 // If not used, or if the parameter is set to a negative value, no checks on
 // the delay of alive messages will be made.
-func MaxDelay(d time.Duration) ProducerOption {
-	return func(pc *queue.ProducerConfig) {
-		pc.SetMaxDelayDuration(d)
+func MaxDelay(accept, max time.Duration) ProducerOption {
+	return func(pc *queue.ProducerConfig) error {
+		err := pc.SetAliveMessageDelayLimits(accept, max)
+		return err
 	}
 }
 
@@ -194,9 +205,10 @@ func MaxDelay(d time.Duration) ProducerOption {
 //
 // If not used, or if the parameter is set to a non-positive value, no checks
 // on the duration between receiving alive messages will be made.
-func Timeout(d time.Duration) ProducerOption {
-	return func(pc *queue.ProducerConfig) {
-		pc.SetTimeoutDuration(d)
+func Timeout(timeout time.Duration) ProducerOption {
+	return func(pc *queue.ProducerConfig) error {
+		pc.SetAliveTimeoutDuration(timeout)
+		return nil
 	}
 }
 
@@ -204,9 +216,10 @@ func Timeout(d time.Duration) ProducerOption {
 
 // Credentials for establishing connection to the uof queue and api.
 func Credentials(bookmakerID, token string) Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		c.BookmakerID = bookmakerID
 		c.Token = token
+		return nil
 	}
 }
 
@@ -216,25 +229,28 @@ func Credentials(bookmakerID, token string) Option {
 // languages. Each language requires separate call to api. If not specified
 // `defaultLanguages` will be used.
 func Languages(langs []uof.Lang) Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		c.Languages = langs
+		return nil
 	}
 }
 
 // Staging forces use of staging environment instead of production.
 func Staging() Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		c.Env = uof.Staging
 		c.Staging = true
+		return nil
 	}
 }
 
 // Replay forces use of replay environment.
 // Callback will be called to start replay after establishing connection.
 func Replay(cb func(*api.ReplayAPI) error) Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		c.Env = uof.Replay
 		c.Replay = cb
+		return nil
 	}
 }
 
@@ -245,15 +261,17 @@ func Replay(cb func(*api.ReplayAPI) error) Option {
 // If the consumer returns an error it is handled as fatal. Immediately closes SDK connection.
 // Can be called multiple times.
 func Consumer(consumer pipe.ConsumerStage) Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		c.Stages = append(c.Stages, pipe.Consumer(consumer))
+		return nil
 	}
 }
 
 // BufferedConsumer same as consumer but with buffered `in` chan of size `buffer`.
 func BufferedConsumer(consumer pipe.ConsumerStage, buffer int) Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		c.Stages = append(c.Stages, pipe.BufferedConsumer(consumer, buffer))
+		return nil
 	}
 }
 
@@ -262,8 +280,9 @@ func BufferedConsumer(consumer pipe.ConsumerStage, buffer int) Option {
 // If returns error will break the pipe and force exit from sdk.Run.
 // Can be called multiple times.
 func Callback(cb func(m *uof.Message) error) Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		c.Stages = append(c.Stages, pipe.Simple(cb))
+		return nil
 	}
 }
 
@@ -280,23 +299,26 @@ func Callback(cb func(m *uof.Message) error) Option {
 //
 // Ref: https://docs.betradar.com/display/BD/UOF+-+Fixtures+in+the+API
 func FixturePreload(to time.Time, max int) Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		c.FixturesTo = to
 		c.FixturesMax = max
+		return nil
 	}
 }
 
 // NoVariants disables variant market description messages.
 func NoVariants() Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		c.Variants = false
+		return nil
 	}
 }
 
 // NoOutrights disables outright market description messages.
 func NoOutrights() Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		c.OutrightVariants = false
+		return nil
 	}
 }
 
@@ -305,8 +327,9 @@ func NoOutrights() Option {
 // when data for all contained players has been fetched from the API. The additional message has
 // the same header as the original OddsChange message, but has an empty body.
 func ConfirmPlayers() Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		c.ConfirmPlayers = true
+		return nil
 	}
 }
 
@@ -315,15 +338,17 @@ func ConfirmPlayers() Option {
 // is sent when data for all contained variant markets has been fetched from the API. The additional
 // message has the same header as the original OddsChange message, but has an empty body.
 func ConfirmVariants() Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		c.ConfirmVariants = true
+		return nil
 	}
 }
 
 // ListenErrors sets ErrorListener for all SDK errors
 func ListenErrors(listener ErrorListenerFunc) Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		c.ErrorListener = listener
+		return nil
 	}
 }
 
@@ -336,11 +361,12 @@ func ListenErrors(listener ErrorListenerFunc) Option {
 // combine any listed prefix type and any listed event type in their URN will be handled.
 // URN type constants are provided by the top-level SDK package.
 func ExtraFixtureTypes(evPrefixes []uof.URNPrefixType, evTypes []uof.URNEventType) Option {
-	return func(c *Config) {
+	return func(c *Config) error {
 		for _, p := range evPrefixes {
 			for _, t := range evTypes {
 				c.ExtraNamespaces = append(c.ExtraNamespaces, uof.EventNamespace(p, t))
 			}
 		}
+		return nil
 	}
 }

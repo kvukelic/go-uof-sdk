@@ -45,7 +45,7 @@ func WithReconnect(ctx context.Context, conn *Connection) func() (<-chan *uof.Me
 			defer close(errc)
 			for {
 				out <- uof.NewConnnectionMessage(uof.ConnectionStatusUp) // signal connect
-				conn.drain(out, errc)
+				conn.bufferedDrain(10000, out, errc)
 				if done() {
 					return
 				}
