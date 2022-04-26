@@ -57,9 +57,9 @@ type Fixture struct {
 }
 
 type Tournament struct {
-	ID   int    `json:"id"`
-	Type string `json:"type"`
-	Name string `xml:"name,attr" json:"name"`
+	ID   int       `json:"id"`
+	Type EventType `json:"type"`
+	Name string    `xml:"name,attr" json:"name"`
 }
 
 type Sport struct {
@@ -75,7 +75,7 @@ type Category struct {
 
 type Competitor struct {
 	ID           int                `json:"id"`
-	Type         string             `json:"type"`
+	Type         EntityType         `json:"type"`
 	Qualifier    string             `xml:"qualifier,attr,omitempty" json:"qualifier,omitempty"`
 	Name         string             `xml:"name,attr" json:"name"`
 	Abbreviation string             `xml:"abbreviation,attr" json:"abbreviation"`
@@ -206,7 +206,7 @@ func (f *Fixture) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	f.Sport = overlay.Tournament.Sport
 	f.Category = overlay.Tournament.Category
 	f.Tournament.ID = overlay.Tournament.URN.ID()
-	f.Tournament.Type = overlay.Tournament.URN.LastNID()
+	f.Tournament.Type = overlay.Tournament.URN.EventType()
 	f.Tournament.Name = overlay.Tournament.Name
 
 	for _, c := range f.Competitors {
@@ -287,7 +287,7 @@ func (t *Competitor) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 		return err
 	}
 	t.ID = overlay.URN.ID()
-	t.Type = overlay.URN.LastNID()
+	t.Type = overlay.URN.EntityType()
 	return nil
 }
 

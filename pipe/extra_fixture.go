@@ -1,7 +1,6 @@
 package pipe
 
 import (
-	"strings"
 	"sync"
 	"time"
 
@@ -13,24 +12,26 @@ type extraFixtureAPI interface {
 }
 
 type extraFixtures struct {
-	api        extraFixtureAPI
-	languages  []uof.Lang
-	namespaces []string
-	em         *expireMap
-	out        chan<- *uof.Message
-	errc       chan<- error
-	subProcs   *sync.WaitGroup
-	rateLimit  chan struct{}
+	api       extraFixtureAPI
+	prefixes  []uof.PrefixType
+	evTypes   []uof.EventType
+	languages []uof.Lang
+	em        *expireMap
+	out       chan<- *uof.Message
+	errc      chan<- error
+	subProcs  *sync.WaitGroup
+	rateLimit chan struct{}
 }
 
-func ExtraFixtures(api extraFixtureAPI, languages []uof.Lang, namespaces []string) InnerStage {
+func ExtraFixtures(api extraFixtureAPI, languages []uof.Lang, prefixes []uof.PrefixType, evTypes []uof.EventType) InnerStage {
 	x := extraFixtures{
-		api:        api,
-		languages:  languages,
-		namespaces: namespaces,
-		em:         newExpireMap(time.Hour),
-		subProcs:   &sync.WaitGroup{},
-		rateLimit:  make(chan struct{}, ConcurentAPICallsLimit),
+		api:       api,
+		languages: languages,
+		prefixes:  prefixes,
+		evTypes:   evTypes,
+		em:        newExpireMap(time.Hour),
+		subProcs:  &sync.WaitGroup{},
+		rateLimit: make(chan struct{}, ConcurentAPICallsLimit),
 	}
 	return StageWithSubProcesses(x.loop)
 }
@@ -39,18 +40,22 @@ func (x *extraFixtures) loop(in <-chan *uof.Message, out chan<- *uof.Message, er
 	x.out, x.errc = out, errc
 	for m := range in {
 		out <- m
-		if x.isExtraEventMessage(m.Type, m.EventURN) {
+		if x.isExtraEventMessage(m) {
 			x.getExtraFixture(m.EventURN, m.ReceivedAt)
 		}
 	}
 	return x.subProcs
 }
 
-func (x *extraFixtures) isExtraEventMessage(typ uof.MessageType, urn uof.URN) bool {
-	if typ.Kind() == uof.MessageKindEvent && typ != uof.MessageTypeFixtureChange {
-		for _, n := range x.namespaces {
-			if strings.HasPrefix(urn.String(), n) {
-				return true
+func (x *extraFixtures) isExtraEventMessage(m *uof.Message) bool {
+	if m.Type.Kind() == uof.MessageKindEvent && !m.Is(uof.MessageTypeFixtureChange) {
+		for _, p := range x.prefixes {
+			if m.EventURN.PrefixType() == p {
+				for _, t := range x.evTypes {
+					if m.EventURN.EventType() == t {
+						return true
+					}
+				}
 			}
 		}
 	}

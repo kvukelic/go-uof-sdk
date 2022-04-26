@@ -98,19 +98,11 @@ func (u URN) ID() int {
 	if len(p) != 3 {
 		return 0
 	}
-	i, _ := strconv.ParseUint(p[2], 10, 64)
+	i, err := strconv.ParseUint(p[2], 10, 64)
+	if err != nil {
+		return 0
+	}
 	return int(i)
-}
-
-func (u URN) LastNID() string {
-	if u == "" {
-		return ""
-	}
-	p := strings.Split(string(u), ":")
-	if len(p) != 3 {
-		return ""
-	}
-	return p[1]
 }
 
 func (u URN) String() string {
@@ -122,73 +114,78 @@ func (u URN) Empty() bool {
 }
 
 func (u *URN) Parse(s string) {
-	r := URN(s)
 	if id, err := strconv.Atoi(s); err == nil {
-		r = EventURN(PrefixSR, EventMatch, id)
+		u.BuildEventURN(PrefixSR, EventMatch, id)
+	} else {
+		*u = URN(s)
 	}
-	*u = r
 }
 
-func EventURN(prefix URNPrefixType, typ URNEventType, eventID int) URN {
-	return URN(fmt.Sprintf("%s:%s:%d", prefix, typ, eventID))
+func (u *URN) BuildEventURN(prefix PrefixType, typ EventType, eventID int) {
+	*u = URN(fmt.Sprintf("%s:%s:%d", prefix, typ, eventID))
 }
 
-func EntityURN(prefix URNPrefixType, typ URNEntityType, eventID int) URN {
-	return URN(fmt.Sprintf("%s:%s:%d", prefix, typ, eventID))
+func (u *URN) BuildEntityURN(prefix PrefixType, typ EntityType, eventID int) {
+	*u = URN(fmt.Sprintf("%s:%s:%d", prefix, typ, eventID))
 }
 
-func EventNamespace(prefix URNPrefixType, typ URNEventType) string {
-	return fmt.Sprintf("%s:%s:", prefix, typ)
-}
-
-func EntityNamespace(prefix URNPrefixType, typ URNEntityType) string {
-	return fmt.Sprintf("%s:%s:", prefix, typ)
-}
-
-type URNPrefixType string
-type URNEventType string
-type URNEntityType string
+type PrefixType string
+type EventType string
+type EntityType string
 
 const (
-	PrefixSR   URNPrefixType = "sr"
-	PrefixVF   URNPrefixType = "vf"
-	PrefixVBL  URNPrefixType = "vbl"
-	PrefixVTO  URNPrefixType = "vto"
-	PrefixVDR  URNPrefixType = "vdr"
-	PrefixVHC  URNPrefixType = "vhc"
-	PrefixVTI  URNPrefixType = "vti"
-	PrefixWNS  URNPrefixType = "wns"
-	PrefixTest URNPrefixType = "test"
+	PrefixSR   PrefixType = "sr"
+	PrefixVF   PrefixType = "vf"
+	PrefixVBL  PrefixType = "vbl"
+	PrefixVTO  PrefixType = "vto"
+	PrefixVDR  PrefixType = "vdr"
+	PrefixVHC  PrefixType = "vhc"
+	PrefixVTI  PrefixType = "vti"
+	PrefixWNS  PrefixType = "wns"
+	PrefixTest PrefixType = "test"
 )
 
 const (
-	EventMatch            URNEventType = "match"
-	EventStage            URNEventType = "stage"
-	EventSeason           URNEventType = "season"
-	EventTournament       URNEventType = "tournament"
-	EventSimpleTournament URNEventType = "simple_tournament"
-	EventDraw             URNEventType = "draw"
+	EventMatch            EventType = "match"
+	EventStage            EventType = "stage"
+	EventSeason           EventType = "season"
+	EventTournament       EventType = "tournament"
+	EventSimpleTournament EventType = "simple_tournament"
+	EventDraw             EventType = "draw"
 )
 
 const (
-	EntityPlayer URNEntityType = "player"
+	EntityPlayer     EntityType = "player"
+	EntityCompetitor EntityType = "competitor"
+	EntitySimpleTeam EntityType = "simple_team"
 	// TODO: add others
 )
 
-func (u URN) PrefixType() URNPrefixType {
+func (u URN) PrefixType() PrefixType {
 	parts := strings.Split(u.String(), ":")
 	if len(parts) > 0 {
-		return URNPrefixType(parts[0])
+		return PrefixType(parts[0])
 	}
-	return URNPrefixType("")
+	return PrefixType("")
 }
 
-func (u URN) EventType() URNEventType {
-	return URNEventType(u.LastNID())
+func (u URN) EventType() EventType {
+	return EventType(u.lastNID())
 }
 
-func (u URN) EntityType() URNEntityType {
-	return URNEntityType(u.LastNID())
+func (u URN) EntityType() EntityType {
+	return EntityType(u.lastNID())
+}
+
+func (u URN) lastNID() string {
+	if u == "" {
+		return ""
+	}
+	p := strings.Split(string(u), ":")
+	if len(p) != 3 {
+		return ""
+	}
+	return p[1]
 }
 
 // EventID tries to generate unique id for all types of events. Most comon are
@@ -198,80 +195,85 @@ func (u URN) EntityType() URNEntityType {
 //            http://sdk.sportradar.com/content/unifiedfeedsdk/net/doc/html/e1f73019-73cd-c9f8-0d58-7fe25800abf2.htm
 // List of currently existing event types is taken from the combo box in the
 // integration control page. From method "Fixture for a specified sport event".
-//nolint:gocyclo //accepting complexity of 23
+//nolint:gocyclo //accepting complexity
 func (u URN) EventID() int {
-	id, prefix := u.split()
-	if id == 0 {
-		return 0
+	if id := u.ID(); id != 0 {
+		prefix := u.PrefixType()
+		eventType := u.EventType()
+		suffixID := func(suffix int8) int {
+			return -(id<<8 | int(suffix))
+		}
+		switch prefix {
+		case PrefixSR:
+			switch eventType {
+			case EventMatch:
+				return id
+			case EventStage:
+				return suffixID(1)
+			case EventSeason:
+				return suffixID(2)
+			case EventTournament:
+				return suffixID(3)
+			case EventSimpleTournament:
+				return suffixID(4)
+			}
+		case PrefixTest:
+			switch eventType {
+			case EventMatch:
+				return suffixID(15)
+			}
+		case PrefixVF:
+			switch eventType {
+			case EventMatch:
+				return suffixID(16)
+			case EventSeason:
+				return suffixID(17)
+			case EventTournament:
+				return suffixID(18)
+			}
+		case PrefixVBL:
+			switch eventType {
+			case EventMatch:
+				return suffixID(19)
+			case EventSeason:
+				return suffixID(20)
+			case EventTournament:
+				return suffixID(21)
+			}
+		case PrefixVTO:
+			switch eventType {
+			case EventMatch:
+				return suffixID(22)
+			case EventSeason:
+				return suffixID(23)
+			case EventTournament:
+				return suffixID(24)
+			}
+		case PrefixVDR:
+			switch eventType {
+			case EventStage:
+				return suffixID(25)
+			}
+		case PrefixVHC:
+			switch eventType {
+			case EventStage:
+				return suffixID(26)
+			}
+		case PrefixVTI:
+			switch eventType {
+			case EventMatch:
+				return suffixID(27)
+			case EventTournament:
+				return suffixID(28)
+			}
+		case PrefixWNS:
+			switch eventType {
+			case EventDraw:
+				return suffixID(29)
+			}
+		}
 	}
-
-	suffixID := func(suffix int8) int {
-		return -(id<<8 | int(suffix))
-	}
-
-	switch prefix {
-	case "sr:match":
-		return id
-	case "sr:stage":
-		return suffixID(1)
-	case "sr:season":
-		return suffixID(2)
-	case "sr:tournament":
-		return suffixID(3)
-	case "sr:simple_tournament":
-		return suffixID(4)
-	case "test:match":
-		return suffixID(15)
-	case "vf:match":
-		return suffixID(16)
-	case "vf:season":
-		return suffixID(17)
-	case "vf:tournament":
-		return suffixID(18)
-	case "vbl:match":
-		return suffixID(19)
-	case "vbl:season":
-		return suffixID(20)
-	case "vbl:tournament":
-		return suffixID(21)
-	case "vto:match":
-		return suffixID(22)
-	case "vto:season":
-		return suffixID(23)
-	case "vto:tournament":
-		return suffixID(24)
-	case "vdr:stage":
-		return suffixID(25)
-	case "vhc:stage":
-		return suffixID(26)
-	case "vti:match":
-		return suffixID(27)
-	case "vti:tournament":
-		return suffixID(28)
-	case "wns:draw":
-		return suffixID(29)
-	default:
-		return 0
-	}
-}
-
-// splits urn into id and prefix
-func (u URN) split() (int, string) {
-	if u == "" {
-		return 0, ""
-	}
-	p := strings.Split(string(u), ":")
-	if len(p) != 3 {
-		return 0, ""
-	}
-	i, err := strconv.ParseUint(p[2], 10, 64)
-	if err != nil {
-		return 0, ""
-	}
-	id := int(i)
-	prefix := p[0] + ":" + p[1]
-
-	return id, prefix
+	return 0
 }
 
 func toLineID(specifiers string) int {

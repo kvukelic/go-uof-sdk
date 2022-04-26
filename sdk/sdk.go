@@ -26,7 +26,8 @@ type Config struct {
 	OutrightVariants bool
 	ConfirmVariants  bool
 	ConfirmPlayers   bool
-	ExtraNamespaces  []string
+	ExtraPrefixes    []uof.PrefixType
+	ExtraEventTypes  []uof.EventType
 	Stages           []pipe.InnerStage
 	Replay           func(*api.ReplayAPI) error
 	Env              uof.Environment
@@ -70,8 +71,8 @@ func Run(ctx context.Context, options ...Option) error {
 		pipe.Recovery(apiConn),
 	}
 
-	if len(c.ExtraNamespaces) > 0 {
-		stages = append(stages, pipe.ExtraFixtures(apiConn, c.Languages, c.ExtraNamespaces))
+	if len(c.ExtraPrefixes) > 0 && len(c.ExtraEventTypes) > 0 {
+		stages = append(stages, pipe.ExtraFixtures(apiConn, c.Languages, c.ExtraPrefixes, c.ExtraEventTypes))
 	}
 
 	stages = append(stages, c.Stages...)
@@ -106,7 +107,8 @@ func config(options ...Option) (Config, error) {
 		OutrightVariants: true,
 		ConfirmPlayers:   false,
 		ConfirmVariants:  false,
-		ExtraNamespaces:  make([]string, 0),
+		ExtraPrefixes:    make([]uof.PrefixType, 0),
+		ExtraEventTypes:  make([]uof.EventType, 0),
 		Languages:        defaultLanguages,
 		Env:              uof.Production,
 	}
@@ -360,12 +362,13 @@ func ListenErrors(listener ErrorListenerFunc) Option {
 // types and list of Betradar URN event types. Such a definition means that any events that
 // combine any listed prefix type and any listed event type in their URN will be handled.
 // URN type constants are provided by the top-level SDK package.
-func ExtraFixtureTypes(evPrefixes []uof.URNPrefixType, evTypes []uof.URNEventType) Option {
+func ExtraFixtureTypes(evPrefixes []uof.PrefixType, evTypes []uof.EventType) Option {
 	return func(c *Config) error {
 		for _, p := range evPrefixes {
-			for _, t := range evTypes {
-				c.ExtraNamespaces = append(c.ExtraNamespaces, uof.EventNamespace(p, t))
-			}
+			c.ExtraPrefixes = append(c.ExtraPrefixes, p)
+		}
+		for _, t := range evTypes {
+			c.ExtraEventTypes = append(c.ExtraEventTypes, t)
 		}
 		return nil
 	}

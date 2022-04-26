@@ -23,22 +23,27 @@ func TestProducer(t *testing.T) {
 func TestURN(t *testing.T) {
 	u := URN("sr:match:123")
 	assert.Equal(t, 123, u.ID())
-	assert.Equal(t, "match", u.LastNID())
-	assert.Equal(t, URN("sr:match:123"), EventURN(PrefixSR, EventMatch, 123))
+	assert.Equal(t, "match", u.lastNID())
 	assert.Equal(t, "sr:match:123", URN("sr:match:123").String())
 
 	assert.Equal(t, 0, URN("").ID())
-	assert.Equal(t, "", URN("").LastNID())
-	assert.True(t, URN("").Empty())
+	assert.Equal(t, "", URN("").lastNID())
 	assert.Equal(t, 0, URN("").EventID())
+	assert.True(t, URN("").Empty())
 
 	assert.Equal(t, 0, URN("pero").ID())
-	assert.Equal(t, "", URN("pero").LastNID())
+	assert.Equal(t, "", URN("pero").lastNID())
 	assert.Equal(t, 0, URN("pero").EventID())
 
-	u.Parse("123")
-	assert.Equal(t, URN("sr:match:123"), u)
-	assert.Equal(t, 123, u.EventID())
+	u.Parse("124")
+	assert.Equal(t, URN("sr:match:124"), u)
+	assert.Equal(t, 124, u.ID())
+	assert.Equal(t, 124, u.EventID())
+
+	u.BuildEventURN(PrefixWNS, EventDraw, 125)
+	assert.Equal(t, URN("wns:draw:125"), u)
+	assert.Equal(t, 125, u.ID())
+	assert.NotEqual(t, 125, u.EventID())
 }
 
 func TestLanguage(t *testing.T) {

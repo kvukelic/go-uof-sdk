@@ -170,7 +170,7 @@ func toSpecifiers(specifiers, extendedSpecifiers string) map[string]string {
 			k := p[0]
 			v := p[1]
 			if k == "player" {
-				v = strings.TrimPrefix(v, EntityNamespace(PrefixSR, EntityPlayer))
+				v = strconv.Itoa(toPlayerID(v))
 			}
 			sm[k] = v
 		}
@@ -179,15 +179,17 @@ func toSpecifiers(specifiers, extendedSpecifiers string) map[string]string {
 }
 
 func toPlayerID(id string) int {
-	if strings.HasPrefix(id, EntityNamespace(PrefixSR, EntityPlayer)) {
-		return URN(id).ID()
+	u := URN(id)
+	if u.PrefixType() == PrefixSR && u.EntityType() == EntityPlayer {
+		return u.ID()
 	}
 	return 0
 }
 
 func toOutcomeID(id string) int {
-	if strings.HasPrefix(id, EntityNamespace(PrefixSR, EntityPlayer)) {
-		return toPlayerID(id)
+	u := URN(id)
+	if u.PrefixType() == PrefixSR && u.EntityType() == EntityPlayer {
+		return u.ID()
 	}
 	if i, err := strconv.ParseInt(id, 10, 64); err == nil {
 		return int(i)
@@ -196,13 +198,14 @@ func toOutcomeID(id string) int {
 }
 
 func toVariantURN(id string) URN {
-	if strings.HasPrefix(id, EntityNamespace(PrefixSR, EntityPlayer)) {
+	u := URN(id)
+	if u.PrefixType() == PrefixSR && u.EntityType() == EntityPlayer {
 		return ""
 	}
 	if _, err := strconv.ParseInt(id, 10, 64); err == nil {
 		return ""
 	}
-	return URN(id)
+	return u
 }
 
 func (o *OddsChange) EachPlayer(handler func(int)) {
