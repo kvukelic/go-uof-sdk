@@ -276,13 +276,6 @@ func (u URN) EventID() int {
 	return 0
 }
 
-func toLineID(specifiers string) int {
-	if specifiers == "" {
-		return 0
-	}
-	return hash32(specifiers)
-}
-
 func hash32(s string) int {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(s))

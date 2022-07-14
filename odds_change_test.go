@@ -50,9 +50,18 @@ func testOddsChangeUnmarshal(t *testing.T, oc *OddsChange) {
 
 	assert.Equal(t, int(12345), *oc.Markets[0].MarketMetadata.NextBetstop)
 
+	assert.Equal(t, 47, oc.Markets[0].ID)
+	assert.Equal(t, 188, oc.Markets[4].ID)
+	assert.Equal(t, 145, oc.Markets[6].ID)
+
+	assert.Equal(t, 0, oc.Markets[0].VariantID)
+	assert.Equal(t, 0, oc.Markets[4].VariantID)
+	assert.Equal(t, 3765204422, oc.Markets[6].VariantID)
+
 	// market line calculation in unmarshal
-	assert.Equal(t, 0, oc.Markets[4].LineID)
 	assert.Equal(t, 2701050930, oc.Markets[0].LineID)
+	assert.Equal(t, 0, oc.Markets[4].LineID)
+	assert.Equal(t, 523475930, oc.Markets[6].LineID)
 
 	// outcome with 'normal' id
 	assert.Equal(t, 1, oc.Markets[3].Outcomes[0].ID)

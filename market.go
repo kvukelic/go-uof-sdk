@@ -38,7 +38,7 @@ func (md MarketDescriptions) Groups() map[string][]int {
 
 type MarketDescription struct {
 	ID                     int               `xml:"id,attr" json:"id"`
-	VariantID              int               `json:"variantID,omitempty"`
+	VariantID              int               `json:"variantID"`
 	Name                   string            `xml:"name,attr" json:"name,omitempty"`
 	Description            string            `xml:"description,attr,omitempty" json:"description,omitempty"`
 	IncludesOutcomesOfType string            `xml:"includes_outcomes_of_type,attr,omitempty" json:"includesOutcomesOfType,omitempty"`
@@ -48,11 +48,12 @@ type MarketDescription struct {
 	Outcomes               []MarketOutcome   `xml:"outcomes>outcome,omitempty" json:"outcomes,omitempty"`
 	Specifiers             []MarketSpecifier `xml:"specifiers>specifier,omitempty" json:"specifiers,omitempty"`
 	Attributes             []MarketAttribute `xml:"attributes>attribute,omitempty" json:"attributes,omitempty"`
-	//Mappings               []Mapping         `xml:"mappings>mapping,omitempty" json:"mappings,omitempty"`
+	// Mappings               []Mapping         `xml:"mappings>mapping,omitempty" json:"mappings,omitempty"`
 }
 
 type MarketOutcome struct {
 	ID          int    `json:"id"`
+	PlayerID    int    `json:"playerID"`
 	VariantURN  URN    `json:"variantURN"`
 	Name        string `xml:"name,attr" json:"name,omitempty"`
 	Description string `xml:"description,attr,omitempty" json:"description,omitempty"`
@@ -114,6 +115,7 @@ func (t *MarketOutcome) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 		return err
 	}
 	t.ID = toOutcomeID(overlay.ID)
+	t.PlayerID = toPlayerID(overlay.ID)
 	t.VariantURN = toVariantURN(overlay.ID)
 	return nil
 }
@@ -130,13 +132,6 @@ func (t *MarketSpecifier) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 	}
 	t.Type = toSpecifierType(overlay.Type)
 	return nil
-}
-
-func toVariantID(id string) int {
-	if id == "" {
-		return 0
-	}
-	return hash32(id)
 }
 
 func toGroups(groups string) []string {

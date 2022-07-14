@@ -50,6 +50,7 @@ type OddsGenerationProperties struct {
 // One market line is uniquely identified by market id and line id.
 type Market struct {
 	ID            int               `xml:"id,attr" json:"id"`
+	VariantID     int               `json:"variantID,omitempty"`
 	LineID        int               `json:"lineID"`
 	Specifiers    map[string]string `json:"sepcifiers,omitempty"`
 	Status        MarketStatus      `xml:"status,attr,omitempty" json:"status,omitempty"`
@@ -127,6 +128,7 @@ func (m *Market) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		m.Status = MarketStatus(*overlay.Status)
 	}
 	m.Specifiers = toSpecifiers(overlay.Specifiers, overlay.ExtendedSpecifiers)
+	m.VariantID = toVariantID(m.VariantSpecifier())
 	m.LineID = toLineID(overlay.Specifiers)
 	return nil
 }
@@ -176,6 +178,20 @@ func toSpecifiers(specifiers, extendedSpecifiers string) map[string]string {
 		}
 	}
 	return sm
+}
+
+func toVariantID(variant string) int {
+	if variant == "" {
+		return 0
+	}
+	return hash32(variant)
+}
+
+func toLineID(specifiers string) int {
+	if specifiers == "" {
+		return 0
+	}
+	return hash32(specifiers)
 }
 
 func toPlayerID(id string) int {
