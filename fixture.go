@@ -311,6 +311,10 @@ func (f *Fixture) PP() string {
 	return fmt.Sprintf("%-90s %12s %15s", name, f.Scheduled.Format("02.01. 15:04"), f.Status)
 }
 
+func (f *Fixture) IsBooked() bool {
+	return f.Liveodds == "booked"
+}
+
 // type TournamentInfoRsp struct {
 // 	XMLName     xml.Name  `xml:"tournament_info"`
 // 	GeneratedAt time.Time `xml:"-" json:"generatedAt,omitempty"`
