@@ -37,12 +37,19 @@ type BetSettlementOutcome struct {
 }
 
 type RollbackBetSettlement struct {
-	EventID   int               `json:"eventID"`
-	EventURN  URN               `xml:"event_id,attr" json:"eventURN"`
-	Producer  Producer          `xml:"product,attr" json:"producer"`
-	Timestamp int               `xml:"timestamp,attr" json:"timestamp"`
-	RequestID *int              `xml:"request_id,attr,omitempty" json:"requestID,omitempty"`
-	Markets   []BetCancelMarket `xml:"market" json:"market"`
+	EventID   int                           `json:"eventID"`
+	EventURN  URN                           `xml:"event_id,attr" json:"eventURN"`
+	Producer  Producer                      `xml:"product,attr" json:"producer"`
+	Timestamp int                           `xml:"timestamp,attr" json:"timestamp"`
+	RequestID *int                          `xml:"request_id,attr,omitempty" json:"requestID,omitempty"`
+	Markets   []RollbackBetSettlementMarket `xml:"market" json:"market"`
+}
+
+type RollbackBetSettlementMarket struct {
+	ID         int               `xml:"id,attr" json:"id"`
+	LineID     int               `json:"lineID"`
+	Specifiers map[string]string `json:"specifiers,omitempty"`
+	VoidReason *int              `xml:"void_reason,attr,omitempty" json:"voidReason,omitempty"`
 }
 
 func (t *BetSettlement) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -87,6 +94,22 @@ func (t *BetSettlementMarket) UnmarshalXML(d *xml.Decoder, start xml.StartElemen
 	return nil
 }
 
+func (t *RollbackBetSettlementMarket) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type T RollbackBetSettlementMarket
+	var overlay struct {
+		*T
+		Specifiers         string `xml:"specifiers,attr,omitempty"`
+		ExtendedSpecifiers string `xml:"extended_specifiers,attr,omitempty"`
+	}
+	overlay.T = (*T)(t)
+	if err := d.DecodeElement(&overlay, &start); err != nil {
+		return err
+	}
+	t.Specifiers = toSpecifiers(overlay.Specifiers, overlay.ExtendedSpecifiers)
+	t.LineID = toLineID(overlay.Specifiers)
+	return nil
+}
+
 func (t *BetSettlementOutcome) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	type T BetSettlementOutcome
 	var overlay struct {
@@ -110,12 +133,14 @@ func (t *BetSettlementOutcome) UnmarshalXML(d *xml.Decoder, start xml.StartEleme
 	return nil
 }
 
-//The following list includes all possible combinations of outcome (result) and void_factor:
-//  result="0" and no void_factor: Lose entire bet
-//  result="1" and no void_factor: Win entire bet
-//  result="0" and void_factor="1": Refund entire bet
-//  result="1" and void_factor="0.5": Refund half bet and win other half
-//  result="0" and void_factor="0.5": Refund half bet and lose other half.
+// The following list includes all possible combinations of outcome (result) and void_factor:
+//
+//	result="0" and no void_factor: Lose entire bet
+//	result="1" and no void_factor: Win entire bet
+//	result="0" and void_factor="1": Refund entire bet
+//	result="1" and void_factor="0.5": Refund half bet and win other half
+//	result="0" and void_factor="0.5": Refund half bet and lose other half.
+//
 // If the bet on an outcome should be refunded completely void-factor is set to
 // 1.0. If half of the bet on an outcome should be refunded void_factor is set
 // to 0.5.
