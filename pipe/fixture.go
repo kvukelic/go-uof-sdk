@@ -14,23 +14,25 @@ type fixtureAPI interface {
 }
 
 type fixture struct {
-	api         fixtureAPI
-	languages   []uof.Lang
-	preloadTo   time.Time
-	preloadMax  int
-	producers   map[uof.Producer]uof.ProducerStatus
-	recoveryTsp syncTime
-	em          *expireMap
-	errc        chan<- error
-	out         chan<- *uof.Message
-	subProcs    *sync.WaitGroup
-	rateLimit   chan struct{}
+	api        fixtureAPI
+	languages  []uof.Lang
+	preload    bool
+	preloadTo  time.Time
+	preloadMax int
+	preloadTsp time.Time
+	producers  map[uof.Producer]uof.ProducerStatus
+	em         *expireMap
+	errc       chan<- error
+	out        chan<- *uof.Message
+	subProcs   *sync.WaitGroup
+	rateLimit  chan struct{}
 }
 
-func newFixture(api fixtureAPI, languages []uof.Lang, preloadTo time.Time, preloadMax int) *fixture {
+func newFixture(api fixtureAPI, languages []uof.Lang, preload bool, preloadTo time.Time, preloadMax int) *fixture {
 	return &fixture{
 		api:        api,
 		languages:  languages,
+		preload:    preload,
 		preloadTo:  preloadTo,
 		preloadMax: preloadMax,
 		producers:  make(map[uof.Producer]uof.ProducerStatus),
@@ -42,148 +44,157 @@ func newFixture(api fixtureAPI, languages []uof.Lang, preloadTo time.Time, prelo
 
 // loop of the Fixture stage. Runs in two phases.
 //
-// First phase:
-//  - Feed processing while preloading fixtures from the API
-//  - Incoming fixture changes from feed are cached only
-//  - When done, trigger fetch for all cached fixtures before second phase
+// First phase (if preload enabled):
+//   - Process (passthrough) feed while preloading fixtures from the API
+//   - Incoming fixture changes from feed are cached only
+//   - Changes possibly missed in preload are fetched and cached only
+//
 // Second phase:
-//  - Feed processing while reacting to producers in recovery
-//  - Incoming fixture changes trigger individual fixture fetch from the API
-//  - Producer recovery completion triggers request for possibly missed fixture changes
-//  - Each possibly missed change also triggers fixture fetch from the API
+//   - Do individual fixture fetch for each unique change cached in first phase
+//   - Process feed while reacting to producers in recovery
+//   - Incoming fixture changes trigger individual fixture fetch from the API
+//   - Producer entering recovery state triggers request for possibly missed changes
+//   - Each such possibly missed change also triggers fixture fetch from the API
 func (f *fixture) loop(in <-chan *uof.Message, out chan<- *uof.Message, errc chan<- error) *sync.WaitGroup {
 	f.out, f.errc = out, errc
-	urns := f.loopWhilePreload(in)
-	for _, u := range urns {
-		f.getFixture(u, uof.CurrentTimestamp(), false)
+	toFetch := []uof.URN{}
+	if f.preload {
+		toFetch = f.loopAndPreload(in)
 	}
-	f.loopAfterPreload(in)
+	f.loopAfterPreload(in, toFetch)
 	return f.subProcs
 }
 
-// loopWhilePreload implements the first phase of the Fixture stage loop.
-// It does the preload of fixtures from schedule API endpoints while caching
-// and returning URNs of any fixture changes received in the meantime.
-func (f *fixture) loopWhilePreload(in <-chan *uof.Message) []uof.URN {
+// loopAndPreload implements the first phase of the Fixture stage loop.
+// It does the preload of fixtures from schedule API endpoints. It will also
+// fetch possibly missed fixture changes (due to schedule API endpoint caching).
+// Meanwhile, URNs of any fixture changes received through feed are cached.
+// When preload is completed, a merged and deduplicated list of both possibly
+// missed and cached fixture URNs is returned for fetching in second phase.
+func (f *fixture) loopAndPreload(in <-chan *uof.Message) []uof.URN {
+	var urns urnSet
+	// start preload + collect potentially missed fixture changes to fetch after preload
 	done := make(chan struct{})
-
 	f.subProcs.Add(1)
 	go func() {
 		defer f.subProcs.Done()
 		defer close(done)
-		f.preloadFixtures()
+		missed := f.preloadFixtures()
+		urns.add(missed)
 	}()
-
-	var urns []uof.URN
+	// passthrough incoming messages + collect incoming fixture changes to fetch after preload
+	var onHold []uof.URN
 	for {
 		select {
 		case m, ok := <-in:
 			if !ok {
-				return urns
+				urns.add(onHold)
+				return urns.get()
 			}
 			f.out <- m
 			if m.IsFixtureChange() {
-				urns = append(urns, m.FixtureChange.EventURN)
+				onHold = append(onHold, m.FixtureChange.EventURN)
 			}
 			if m.IsProducersChange() {
 				f.producersStatusChange(m.Producers, true)
 			}
 		case <-done:
-			return urns
+			urns.add(onHold)
+			return urns.get()
 		}
 	}
 }
 
 // loopAfterPreload implements the second phase of the Fixture stage loop.
 // It triggers fixture fetch for each fixture change received, while also
-// reacting to completed producer recoveries by recovering potentially missed
-// fixture changes.
-//
-// One recovery of fixture changes is also triggered upon first entering this
-// loop. This is to account for the fact that the API caches schedule endpoint
-// responses, and to cover for any changes that might have happened after the
-// last caching.
-func (f *fixture) loopAfterPreload(in <-chan *uof.Message) {
-	recover := func() {
-		f.subProcs.Add(1)
-		go func() {
-			defer f.subProcs.Done()
-			f.recoverFixtures()
-		}()
-	}
-	recover()
-
+// reacting to producers in recovery by recovering potentially missed fixture
+// changes. Upon first entering this loop, a fetch for each URN in the given
+// list is also performed in parallel.
+func (f *fixture) loopAfterPreload(in <-chan *uof.Message, toFetch []uof.URN) {
+	// start load of fixtures we need to fetch up to this point
+	f.subProcs.Add(1)
+	go func() {
+		defer f.subProcs.Done()
+		for _, u := range toFetch {
+			f.getFixture(u, uof.CurrentTimestamp(), false)
+		}
+	}()
+	// consume incoming messages
 	for m := range in {
 		f.out <- m
 		if m.IsFixtureChange() {
 			f.getFixture(m.FixtureChange.EventURN, m.ReceivedAt, true)
 		}
 		if m.IsProducersChange() {
-			shouldRecover := f.producersStatusChange(m.Producers, false)
-			if shouldRecover {
-				recover()
+			recover, tsp := f.producersStatusChange(m.Producers, false)
+			if recover {
+				// recover potentially missed fixtures
+				f.subProcs.Add(1)
+				go func() {
+					defer f.subProcs.Done()
+					missed := f.getChangesSince(tsp)
+					for _, u := range missed {
+						f.getFixture(u, uof.CurrentTimestamp(), true)
+					}
+				}()
 			}
 		}
 	}
 }
 
 // preloadFixtures requests scheduled fixtures and inserts fixture messages
-// into the pipeline
-func (f *fixture) preloadFixtures() {
-	if f.preloadTo.IsZero() {
-		return
-	}
+// into the pipeline. It will also fetch possibly missed fixture changes
+// according to fetched schedule timestamps, and return their URNs.
+func (f *fixture) preloadFixtures() []uof.URN {
 	var wg sync.WaitGroup
 	wg.Add(len(f.languages))
-	var recoveryTsp syncTime
+	var earliestTsp syncTime
 	for _, lang := range f.languages {
 		go func(lang uof.Lang) {
 			defer wg.Done()
 			rsps, errc := f.api.FixtureSchedule(lang, f.preloadTo, f.preloadMax)
+			var errWg sync.WaitGroup
+			errWg.Add(1)
+			go func() {
+				defer errWg.Done()
+				for err := range errc {
+					f.errc <- err
+				}
+			}()
 			for rsp := range rsps {
-				x, tsp := rsp.Fixture, rsp.GeneratedAt
-				recoveryTsp.set(earlierNonZero(recoveryTsp.get(), tsp))
-				generatedAt := int(tsp.UnixNano() / 1e6)
-				f.out <- uof.NewFixtureMessage(lang, x, uof.CurrentTimestamp(), generatedAt)
+				earliestTsp.set(earlierNonZero(earliestTsp.get(), rsp.GeneratedAt))
+				generatedAt := int(rsp.GeneratedAt.UnixNano() / 1e6)
+				f.out <- uof.NewFixtureMessage(lang, rsp.Fixture, uof.CurrentTimestamp(), generatedAt)
 			}
-			if err := <-errc; err != nil {
-				f.errc <- err
-			}
+			errWg.Wait()
 		}(lang)
 	}
 	wg.Wait()
-	f.recoveryTsp.set(recoveryTsp.get())
+	f.preloadTsp = earliestTsp.get()
+	return f.getChangesSince(earliestTsp.get())
 }
 
-// recoverFixtures requests potentially missed fixture changes and triggers
-// fixture fetch for each of them
-func (f *fixture) recoverFixtures() {
-	from := f.recoveryTsp.get()
-	if from.IsZero() {
-		return
+// getChangesSince requests fixture changes that have happened since the given
+// point in time and returns their URNs.
+func (f *fixture) getChangesSince(from time.Time) []uof.URN {
+	var urns urnSet
+	if !from.IsZero() {
+		var wg sync.WaitGroup
+		wg.Add(len(f.languages))
+		for _, lang := range f.languages {
+			go func(lang uof.Lang) {
+				defer wg.Done()
+				rsp, err := f.api.FixtureChanges(lang, pastLimit(from, time.Hour))
+				if err == nil {
+					urns.addFromChanges(rsp.Changes)
+				} else {
+					f.errc <- err
+				}
+			}(lang)
+		}
+		wg.Wait()
 	}
-	var wg sync.WaitGroup
-	wg.Add(len(f.languages))
-	var changedURNs urnSet
-	var recoveryTsp syncTime
-	for _, lang := range f.languages {
-		go func(lang uof.Lang) {
-			defer wg.Done()
-			rsp, err := f.api.FixtureChanges(lang, pastLimit(from, time.Hour))
-			if err == nil {
-				recoveryTsp.set(earlierNonZero(recoveryTsp.get(), rsp.GeneratedAt))
-				changedURNs.addFromChanges(rsp.Changes)
-			} else {
-				f.errc <- err
-				return
-			}
-		}(lang)
-	}
-	wg.Wait()
-	f.recoveryTsp.shift(from, recoveryTsp.get())
-	for _, u := range changedURNs.get() {
-		f.getFixture(u, uof.CurrentTimestamp(), false)
-	}
+	return urns.get()
 }
 
 // getFixture requests an individual fixture from the API and inserts fixture
@@ -212,52 +223,33 @@ func (f *fixture) getFixture(eventURN uof.URN, receivedAt int, forceUpdate bool)
 	}
 }
 
-// anyRecovering returns true if at least one producer is in recovery state
-func (f *fixture) anyRecovering() bool {
-	for _, s := range f.producers {
-		if s == uof.ProducerStatusInRecovery {
-			return true
-		}
-	}
-	return false
-}
-
-// updateRecoveryTsp moves the fixture change recovery timestamp due to a
-// producer recovery. If no other producer is recovering, the timestamp is set
-// to the start of this producer's recovery window. If there are other
-// producers in recovery, the timestamp is moved to the start of this
-// producer's recovery window only if it is earlier than the current timestamp.
-func (f *fixture) updateRecoveryTsp(timestamp int) {
-	noRecoveries := !f.anyRecovering()
-	tsp := time.Unix(0, int64(timestamp)*1e6)
-	f.recoveryTsp.setIf(tsp, func(curr time.Time) bool {
-		return noRecoveries || tsp.Before(curr)
-	})
-}
-
-// producersStatusChange processes producers change messages. It does updates
-// on the state of the producers and the recovery timestamp, and returns true
-// when a recovery may trigger due to a completed producer recovery.
-func (f *fixture) producersStatusChange(producers uof.ProducersChange, inPreload bool) bool {
+// producersStatusChange processes producers change messages. It updates the
+// states of the producers, and signals when a recovery should be triggered
+// by returning true as the first returned value, and time of the start of
+// the producer's recovery window as the second value.
+func (f *fixture) producersStatusChange(changes uof.ProducersChange, inPreload bool) (bool, time.Time) {
 	shouldRecover := false
-	for _, pc := range producers {
-		if f.producers[pc.Producer] != pc.Status && !inPreload {
-			if pc.Status == uof.ProducerStatusInRecovery {
-				f.updateRecoveryTsp(pc.RecoveryTimestamp)
-			}
-			if pc.Status == uof.ProducerStatusActive {
-				shouldRecover = true
+	recoveryTsp := time.Time{}
+	for _, pc := range changes {
+		if pc.Status == uof.ProducerStatusInRecovery && f.producers[pc.Producer] != uof.ProducerStatusInRecovery && !inPreload {
+			shouldRecover = true
+			tsp := time.Unix(0, int64(pc.RecoveryTimestamp)*1e6)
+			if !tsp.IsZero() && (recoveryTsp.IsZero() || tsp.Before(recoveryTsp)) {
+				recoveryTsp = tsp
+				if recoveryTsp.Before(f.preloadTsp) {
+					recoveryTsp = f.preloadTsp
+				}
 			}
 		}
 		f.producers[pc.Producer] = pc.Status
 	}
-	return shouldRecover
+	return shouldRecover, recoveryTsp
 }
 
 // Fixture inner stage for the SDK pipeline
-func Fixture(api fixtureAPI, languages []uof.Lang, preloadTo time.Time, preloadMax int) InnerStage {
-	f := newFixture(api, languages, preloadTo, preloadMax)
-	return StageWithSubProcesses(f.loop)
+func Fixture(api fixtureAPI, languages []uof.Lang, preload bool, preloadTo time.Time, preloadMax int) InnerStage {
+	f := newFixture(api, languages, preload, preloadTo, preloadMax)
+	return StageWithSubProcessesSync(f.loop)
 }
 
 // AUXILIARIES
@@ -298,26 +290,6 @@ func (st *syncTime) set(t time.Time) {
 	st.time = t
 }
 
-// setIf sets this time instant only if the provided condition is met
-func (st *syncTime) setIf(t time.Time, fn func(time.Time) bool) {
-	st.Lock()
-	defer st.Unlock()
-	if fn(st.time) {
-		st.time = t
-	}
-}
-
-// shift checks if this current instant is within the interval between instants
-// 'from' and 'to', in which case it is set to the time instant 'to'
-func (st *syncTime) shift(from time.Time, to time.Time) {
-	st.Lock()
-	defer st.Unlock()
-	if st.time.Before(from) || st.time.After(to) {
-		return
-	}
-	st.time = to
-}
-
 // get return this current time instant
 func (st *syncTime) get() time.Time {
 	st.RLock()
@@ -329,6 +301,21 @@ func (st *syncTime) get() time.Time {
 type urnSet struct {
 	urns []uof.URN
 	sync.RWMutex
+}
+
+// add URNs from a given list to the set (with dedup)
+func (us *urnSet) add(urns []uof.URN) {
+	dedupMap := us.toMap()
+	for _, urn := range urns {
+		dedupMap[urn] = true
+	}
+	merged := make([]uof.URN, 0)
+	for urn := range dedupMap {
+		merged = append(merged, urn)
+	}
+	us.Lock()
+	defer us.Unlock()
+	us.urns = merged
 }
 
 // add URNs from a list of uof.Changes to the set (with dedup)
@@ -362,8 +349,6 @@ func (us *urnSet) get() []uof.URN {
 	us.RLock()
 	defer us.RUnlock()
 	ret := make([]uof.URN, 0, len(us.urns))
-	for _, urn := range us.urns {
-		ret = append(ret, urn)
-	}
+	ret = append(ret, us.urns...)
 	return ret
 }

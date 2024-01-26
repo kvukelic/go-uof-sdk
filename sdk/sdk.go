@@ -20,6 +20,7 @@ type Config struct {
 	BookmakerID     string
 	Token           string
 	Producers       []queue.ProducerConfig
+	FixturesLoad    bool
 	FixturesTo      time.Time
 	FixturesMax     int
 	VariantMarkets  bool
@@ -65,7 +66,7 @@ func Run(ctx context.Context, options ...Option) error {
 
 	stages := []pipe.InnerStage{
 		pipe.Markets(apiConn, c.Languages, c.VariantMarkets, c.OutrightMarkets, c.ConfirmMarkets),
-		pipe.Fixture(apiConn, c.Languages, c.FixturesTo, c.FixturesMax),
+		pipe.Fixture(apiConn, c.Languages, c.FixturesLoad, c.FixturesTo, c.FixturesMax),
 		pipe.Player(apiConn, c.Languages, c.ConfirmPlayers),
 		pipe.BetStop(),
 		pipe.Recovery(apiConn),
@@ -103,6 +104,7 @@ func config(options ...Option) (Config, error) {
 	// defaults
 	c := &Config{
 		Producers:       make([]queue.ProducerConfig, 0),
+		FixturesLoad:    false,
 		VariantMarkets:  true,
 		OutrightMarkets: true,
 		ConfirmPlayers:  false,
@@ -301,12 +303,22 @@ func Callback(cb func(m *uof.Message) error) Option {
 	}
 }
 
-// FixturePreload configures retrieval of live and prematch fixtures at start-up.
+// FixturePreload enables and configures retrieval of live and prematch fixtures
+// at start-up.
 //
 // Fixtures for all events which start before `to` time are fetched. The `max`
-// value sets a rough maximum of fixtures to be preloaded. A minimum set of
-// fixtures for currently running events and the first page of active scheduled
-// prematch events is always fetched.
+// value sets a rough maximum of fixtures to be preloaded. If preload is enabled
+// by setting this option, a minimum set of fixtures for currently running events
+// and the first page of active scheduled prematch events is fetched at least.
+//
+// If provided value of 'to' is zero value, no limit on scheduled starting time
+// of preloaded fixtures will be imposed.
+//
+// If provided value of 'max' is negative, no limit on maximum count of preloaded
+// fixtures will be imposed.
+//
+// In case both limits are disabled as described, all fixtures retrieveable from
+// the API will be fetched.
 //
 // There is a special endpoint to get almost all fixtures before initiating
 // recovery. This endpoint is designed to significantly reduce the number of API
@@ -315,6 +327,7 @@ func Callback(cb func(m *uof.Message) error) Option {
 // Ref: https://docs.betradar.com/display/BD/UOF+-+Fixtures+in+the+API
 func FixturePreload(to time.Time, max int) Option {
 	return func(c *Config) error {
+		c.FixturesLoad = true
 		c.FixturesTo = to
 		c.FixturesMax = max
 		return nil
@@ -377,12 +390,8 @@ func ListenErrors(listener ErrorListenerFunc) Option {
 // URN type constants are provided by the top-level SDK package.
 func ExtraFixtureTypes(evPrefixes []uof.PrefixType, evTypes []uof.EventType) Option {
 	return func(c *Config) error {
-		for _, p := range evPrefixes {
-			c.ExtraPrefixes = append(c.ExtraPrefixes, p)
-		}
-		for _, t := range evTypes {
-			c.ExtraEventTypes = append(c.ExtraEventTypes, t)
-		}
+		c.ExtraPrefixes = append(c.ExtraPrefixes, evPrefixes...)
+		c.ExtraEventTypes = append(c.ExtraEventTypes, evTypes...)
 		return nil
 	}
 }

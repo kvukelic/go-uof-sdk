@@ -49,7 +49,7 @@ func TestFixturePipe(t *testing.T) {
 	a := &fixtureAPIMock{changeURN: "sr:match:1235"}
 	preloadTo := time.Now().Add(time.Hour)
 	langs := []uof.Lang{uof.LangEN, uof.LangDE}
-	f := Fixture(a, langs, preloadTo, 0)
+	f := Fixture(a, langs, true, preloadTo, 0)
 	assert.NotNil(t, f)
 
 	// run the stage loop (& start preload)

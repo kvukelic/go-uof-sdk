@@ -68,19 +68,19 @@ func (a *API) FixtureChanges(lang uof.Lang, from time.Time) (uof.ChangesRsp, err
 // asynchronously via a channel. A separate channel, that receives and buffers
 // only the earliest timestamp of all received responses, is also returned.
 func (a *API) FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.FixtureRsp, <-chan error) {
-	errc := make(chan error, 1)
+	errc := make(chan error)
 	out := make(chan uof.FixtureRsp)
 	go func() {
 		defer close(out)
 		defer close(errc)
 
 		fixtureCount := 0
-		lastSchedule := time.Time{}
+		latestSchedule := time.Time{}
 
-		sendFixtures := func(rsp scheduleRsp) {
+		pushFixtures := func(rsp scheduleRsp) {
 			fixtureCount += len(rsp.Fixtures)
 			for _, f := range rsp.Fixtures {
-				lastSchedule = laterNonZero(lastSchedule, f.Scheduled)
+				latestSchedule = laterNonZero(latestSchedule, f.Scheduled)
 				out <- uof.FixtureRsp{Fixture: f, GeneratedAt: rsp.GeneratedAt}
 			}
 		}
@@ -92,19 +92,27 @@ func (a *API) FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.
 			errc <- err
 			return
 		}
-		sendFixtures(liveRsp)
+		pushFixtures(liveRsp)
 
 		// step 2: get schedule of active prematch events (until 'to')
 		limit := 1000
-		for start, done := 0, false; !done; start += limit {
+		for start := 0; ; start += limit {
 			var preRsp scheduleRsp
 			err = a.getAs(&preRsp, events, &params{Lang: lang, Start: start, Limit: limit})
 			if err != nil {
 				errc <- err
 				return
 			}
-			sendFixtures(preRsp)
-			done = fixtureCount >= max || lastSchedule.After(to)
+			if len(preRsp.Fixtures) < 1 {
+				break // no more schedule pages
+			}
+			pushFixtures(preRsp)
+			if max >= 0 && fixtureCount >= max {
+				break // reached configured maximum count of fixtures
+			}
+			if !to.IsZero() && latestSchedule.After(to) {
+				break // reached configured fixture scheduled time limit
+			}
 		}
 	}()
 
