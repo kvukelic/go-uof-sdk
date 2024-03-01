@@ -10,6 +10,8 @@ type FixtureRsp struct {
 	XMLName     xml.Name  `xml:"fixtures_fixture"`
 	GeneratedAt time.Time `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
 	Fixture     Fixture   `xml:"fixture" json:"fixture"`
+
+	Raw []byte `xml:"-" json:"-"`
 }
 
 // Fixtures describe static or semi-static information about matches and races.

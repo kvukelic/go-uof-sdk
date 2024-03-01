@@ -302,7 +302,7 @@ func NewAliveTimeoutMessage(p Producer) *Message {
 	}
 }
 
-func NewFixtureMessage(lang Lang, x Fixture, requestedAt, generatedAt int) *Message {
+func NewFixtureMessage(lang Lang, x Fixture, raw []byte, requestedAt, generatedAt int) *Message {
 	return &Message{
 		Header: Header{
 			Type:        MessageTypeFixture,
@@ -314,6 +314,7 @@ func NewFixtureMessage(lang Lang, x Fixture, requestedAt, generatedAt int) *Mess
 			GeneratedAt: generatedAt,
 		},
 		Body: Body{Fixture: &x},
+		Raw:  raw,
 	}
 }
 

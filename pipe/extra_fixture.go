@@ -80,7 +80,7 @@ func (x *extraFixtures) getExtraFixture(fixtureURN uof.URN, receivedAt int) {
 				return
 			}
 			generatedAt := int(rsp.GeneratedAt.UnixNano() / 1e6)
-			x.out <- uof.NewFixtureMessage(lang, rsp.Fixture, receivedAt, generatedAt)
+			x.out <- uof.NewFixtureMessage(lang, rsp.Fixture, rsp.Raw, receivedAt, generatedAt)
 			x.em.insert(key)
 		}(lang)
 	}

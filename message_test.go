@@ -256,7 +256,7 @@ func TestNewMessage(t *testing.T) {
 	m = NewProducersChangeMessage(nil)
 	assert.True(t, m.Is(MessageTypeProducersChange))
 
-	m = NewFixtureMessage(LangEN, Fixture{}, 0, 0)
+	m = NewFixtureMessage(LangEN, Fixture{}, []byte{}, 0, 0)
 	assert.True(t, m.Is(MessageTypeFixture))
 
 	// m, err := NewFixtureMessageFromBuf(LangEN, nil, 0)

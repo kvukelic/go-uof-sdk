@@ -38,11 +38,17 @@ func (a *API) Player(lang uof.Lang, playerID int) (uof.PlayerProfile, error) {
 
 // Fixture lists the fixture for a specified sport event
 func (a *API) Fixture(lang uof.Lang, eventURN uof.URN) (uof.FixtureRsp, error) {
+	buf, err := a.get(pathFixture, &params{Lang: lang, EventURN: eventURN})
+	if err != nil {
+		return uof.FixtureRsp{}, err
+	}
 	var fr fixtureRsp
-	err := a.getAs(&fr, pathFixture, &params{Lang: lang, EventURN: eventURN})
+	if err := xml.Unmarshal(buf, &fr); err != nil {
+		return uof.FixtureRsp{}, uof.Notice("unmarshal", err)
+	}
 	fr.Fixture.ID = eventURN.EventID()
 	fr.Fixture.URN = eventURN
-	return uof.FixtureRsp{Fixture: fr.Fixture, GeneratedAt: fr.GeneratedAt}, err
+	return uof.FixtureRsp{Fixture: fr.Fixture, GeneratedAt: fr.GeneratedAt, Raw: buf}, err
 }
 
 // FixtureChanges retrieves a list of fixture changes starting from the time
@@ -77,36 +83,44 @@ func (a *API) FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.
 		fixtureCount := 0
 		latestSchedule := time.Time{}
 
-		pushFixtures := func(rsp scheduleRsp) {
+		pushFixtures := func(rsp scheduleRsp, raw []byte) {
 			fixtureCount += len(rsp.Fixtures)
 			for _, f := range rsp.Fixtures {
 				latestSchedule = laterNonZero(latestSchedule, f.Scheduled)
-				out <- uof.FixtureRsp{Fixture: f, GeneratedAt: rsp.GeneratedAt}
+				out <- uof.FixtureRsp{Fixture: f, GeneratedAt: rsp.GeneratedAt, Raw: raw}
 			}
 		}
 
 		// step 1: get schedule of currently live events
 		var liveRsp scheduleRsp
-		err := a.getAs(&liveRsp, liveEvents, &params{Lang: lang})
+		buf, err := a.get(liveEvents, &params{Lang: lang})
 		if err != nil {
 			errc <- err
 			return
 		}
-		pushFixtures(liveRsp)
+		if err := xml.Unmarshal(buf, &liveRsp); err != nil {
+			errc <- uof.Notice("unmarshal", err)
+			return
+		}
+		pushFixtures(liveRsp, buf)
 
 		// step 2: get schedule of active prematch events (until 'to')
 		limit := 1000
 		for start := 0; ; start += limit {
 			var preRsp scheduleRsp
-			err = a.getAs(&preRsp, events, &params{Lang: lang, Start: start, Limit: limit})
+			buf, err := a.get(events, &params{Lang: lang, Start: start, Limit: limit})
 			if err != nil {
 				errc <- err
+				return
+			}
+			if err := xml.Unmarshal(buf, &preRsp); err != nil {
+				errc <- uof.Notice("unmarshal", err)
 				return
 			}
 			if len(preRsp.Fixtures) < 1 {
 				break // no more schedule pages
 			}
-			pushFixtures(preRsp)
+			pushFixtures(preRsp, buf)
 			if max >= 0 && fixtureCount >= max {
 				break // reached configured maximum count of fixtures
 			}

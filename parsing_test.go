@@ -335,7 +335,7 @@ func TestFixture(t *testing.T) {
 	assert.Equal(t, f, *msgAPI.Fixture)
 
 	requestedAt := int(time.Now().UnixNano() / 1e6)
-	msg := NewFixtureMessage(LangEN, f, requestedAt, 0)
+	msg := NewFixtureMessage(LangEN, f, buf, requestedAt, 0)
 	assert.Equal(t, f, *msg.Fixture)
 }
 

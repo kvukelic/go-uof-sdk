@@ -164,7 +164,7 @@ func (f *fixture) preloadFixtures() []uof.URN {
 			for rsp := range rsps {
 				earliestTsp.set(earlierNonZero(earliestTsp.get(), rsp.GeneratedAt))
 				generatedAt := int(rsp.GeneratedAt.UnixNano() / 1e6)
-				f.out <- uof.NewFixtureMessage(lang, rsp.Fixture, uof.CurrentTimestamp(), generatedAt)
+				f.out <- uof.NewFixtureMessage(lang, rsp.Fixture, rsp.Raw, uof.CurrentTimestamp(), generatedAt)
 			}
 			errWg.Wait()
 		}(lang)
@@ -217,7 +217,7 @@ func (f *fixture) getFixture(eventURN uof.URN, receivedAt int, forceUpdate bool)
 				return
 			}
 			generatedAt := int(rsp.GeneratedAt.UnixNano() / 1e6)
-			f.out <- uof.NewFixtureMessage(lang, rsp.Fixture, receivedAt, generatedAt)
+			f.out <- uof.NewFixtureMessage(lang, rsp.Fixture, rsp.Raw, receivedAt, generatedAt)
 			f.em.insert(key)
 		}(lang)
 	}
