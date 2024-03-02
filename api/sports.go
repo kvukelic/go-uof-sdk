@@ -83,44 +83,36 @@ func (a *API) FixtureSchedule(lang uof.Lang, to time.Time, max int) (<-chan uof.
 		fixtureCount := 0
 		latestSchedule := time.Time{}
 
-		pushFixtures := func(rsp scheduleRsp, raw []byte) {
+		pushFixtures := func(rsp scheduleRsp) {
 			fixtureCount += len(rsp.Fixtures)
 			for _, f := range rsp.Fixtures {
-				latestSchedule = laterNonZero(latestSchedule, f.Scheduled)
-				out <- uof.FixtureRsp{Fixture: f, GeneratedAt: rsp.GeneratedAt, Raw: raw}
+				latestSchedule = laterNonZero(latestSchedule, f.Fixture.Scheduled)
+				out <- uof.FixtureRsp{Fixture: f.Fixture, GeneratedAt: rsp.GeneratedAt, Raw: f.Raw}
 			}
 		}
 
 		// step 1: get schedule of currently live events
 		var liveRsp scheduleRsp
-		buf, err := a.get(liveEvents, &params{Lang: lang})
+		err := a.getAs(&liveRsp, liveEvents, &params{Lang: lang})
 		if err != nil {
 			errc <- err
 			return
 		}
-		if err := xml.Unmarshal(buf, &liveRsp); err != nil {
-			errc <- uof.Notice("unmarshal", err)
-			return
-		}
-		pushFixtures(liveRsp, buf)
+		pushFixtures(liveRsp)
 
 		// step 2: get schedule of active prematch events (until 'to')
 		limit := 1000
 		for start := 0; ; start += limit {
 			var preRsp scheduleRsp
-			buf, err := a.get(events, &params{Lang: lang, Start: start, Limit: limit})
+			err = a.getAs(&preRsp, events, &params{Lang: lang, Start: start, Limit: limit})
 			if err != nil {
 				errc <- err
-				return
-			}
-			if err := xml.Unmarshal(buf, &preRsp); err != nil {
-				errc <- uof.Notice("unmarshal", err)
 				return
 			}
 			if len(preRsp.Fixtures) < 1 {
 				break // no more schedule pages
 			}
-			pushFixtures(preRsp, buf)
+			pushFixtures(preRsp)
 			if max >= 0 && fixtureCount >= max {
 				break // reached configured maximum count of fixtures
 			}
@@ -185,6 +177,47 @@ type fixtureChangesRsp struct {
 }
 
 type scheduleRsp struct {
-	Fixtures    []uof.Fixture `xml:"sport_event,omitempty" json:"sportEvent,omitempty"`
-	GeneratedAt time.Time     `xml:"generated_at,attr,omitempty" json:"generatedAt,omitempty"`
+	Fixtures    []scheduleFixture `json:"sportEvents,omitempty"`
+	GeneratedAt time.Time         `json:"generatedAt,omitempty"`
+}
+
+type scheduleFixture struct {
+	Fixture uof.Fixture `json:"sportEvent,omitempty"`
+	Raw     []byte      `json:"-"`
+}
+
+func (sr *scheduleRsp) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type T struct {
+		Raw         []byte    `xml:",innerxml"`
+		GeneratedAt time.Time `xml:"generated_at,attr,omitempty"`
+	}
+	var t T
+	if err := d.DecodeElement(&t, &start); err != nil {
+		return err
+	}
+	var fs []scheduleFixture
+	for len(t.Raw) > 0 {
+		var w scheduleFixtureWrapper
+		if err := xml.Unmarshal(t.Raw, &w); err != nil {
+			return err
+		}
+		fs = append(fs, scheduleFixture{Fixture: w.Fixture, Raw: t.Raw[:w.rawEnd]})
+		t.Raw = t.Raw[w.rawEnd:]
+	}
+	sr.Fixtures = fs
+	sr.GeneratedAt = t.GeneratedAt
+	return nil
+}
+
+type scheduleFixtureWrapper struct {
+	Fixture uof.Fixture
+	rawEnd  int64
+}
+
+func (t *scheduleFixtureWrapper) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	if err := d.DecodeElement(&t.Fixture, &start); err != nil {
+		return err
+	}
+	t.rawEnd = d.InputOffset()
+	return nil
 }
